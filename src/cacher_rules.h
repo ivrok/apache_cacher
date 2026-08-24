@@ -1,0 +1,61 @@
+#ifndef CACHER_RULES_H
+#define CACHER_RULES_H
+
+#include <stddef.h>
+
+/*
+ * JSON rule parsing and matching for Cacher.
+ *
+ * Deliberately independent of Apache/APR headers so this file (plus
+ * third_party/cJSON.c) can be built and unit-tested standalone - see
+ * test/test_rules_parse.c. Only the C standard library is required.
+ */
+
+typedef struct {
+    char *path;             /* glob pattern ('*'/'?'), NULL = match any path */
+    char **methods;         /* NULL-terminated array of uppercase methods, NULL = match any */
+    int enabled;            /* 1 = active (default), 0 = explicitly disabled */
+    long ttl_seconds;       /* freshness window; <= 0 = never fresh */
+    int *status_codes;      /* array terminated by -1; defaults to {200,-1} if omitted */
+    char **bypass_cookies;  /* NULL-terminated array of glob patterns matched against cookie NAMEs */
+    char **vary;            /* NULL-terminated array: header names, or "cookie:NAME" */
+} cacher_rule;
+
+typedef struct {
+    cacher_rule **rules;    /* NULL-terminated array, ordered; first match wins */
+} cacher_ruleset;
+
+/*
+ * Parses `json` (schema: {"rules": [...]}) into a newly malloc'd ruleset.
+ * Returns NULL on a hard JSON syntax error or a missing top-level "rules"
+ * array, writing a short message into errbuf (if non-NULL). An individual
+ * rule object with invalid/missing fields falls back to safe defaults
+ * rather than aborting the whole parse.
+ */
+cacher_ruleset *cacher_ruleset_parse(const char *json, char *errbuf, size_t errbuf_len);
+
+/* Releases everything allocated by cacher_ruleset_parse(). Safe to call with NULL. */
+void cacher_ruleset_free(cacher_ruleset *rs);
+
+/*
+ * Returns the first enabled rule matching `path` and `method` (method may
+ * be NULL to skip method matching), or NULL if none match. The returned
+ * pointer is owned by `rs`.
+ */
+const cacher_rule *cacher_ruleset_match(const cacher_ruleset *rs, const char *path, const char *method);
+
+/* True if any of `rule`'s bypass_cookies patterns matches `cookie_name`. */
+int cacher_rule_bypasses_cookie(const cacher_rule *rule, const char *cookie_name);
+
+/* True if `status` is one of `rule`'s status_codes. */
+int cacher_rule_allows_status(const cacher_rule *rule, int status);
+
+/*
+ * Simple glob match: '*' matches any run of characters, '?' matches any
+ * single character, the rest must match literally. Anchored to the whole
+ * string (i.e. implicit '^' and '$'). `ci` selects case-insensitive
+ * matching (used for cookie names).
+ */
+int cacher_glob_match(const char *pattern, const char *value, int ci);
+
+#endif /* CACHER_RULES_H */

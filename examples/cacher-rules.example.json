@@ -1,0 +1,16 @@
+{
+  "rules": [
+    {
+      "match": { "path": "/blog/*", "methods": ["GET", "HEAD"] },
+      "ttl": 300,
+      "status_codes": [200],
+      "bypass_cookies": ["PHPSESSID", "wordpress_logged_in_*", "wp_woocommerce_session_*"],
+      "vary": ["Accept-Encoding", "cookie:cart_id"]
+    },
+    {
+      "match": { "path": "/admin/*" },
+      "enabled": false,
+      "ttl": 0
+    }
+  ]
+}

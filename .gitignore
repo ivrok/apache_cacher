@@ -1,0 +1,30 @@
+# Build artifacts (apxs/libtool on Linux)
+*.o
+*.lo
+*.slo
+*.la
+.libs/
+src/.libs/
+
+# Built modules
+*.so
+*.dll
+
+# MSVC build artifacts (Windows)
+*.obj
+*.exp
+*.lib
+*.pdb
+*.ilk
+
+# Compiled unit-test harness
+test/test_rules_parse
+test/test_rules_parse.exe
+
+# Editor / OS noise
+*.swp
+*~
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

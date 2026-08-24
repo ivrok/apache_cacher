@@ -1,0 +1,5 @@
+# Example .htaccess enabling Cacher for this directory tree.
+# Rename to .htaccess and adjust the rules file path for your site.
+
+CacherEnable On
+CacherRulesFile cacher-rules.json

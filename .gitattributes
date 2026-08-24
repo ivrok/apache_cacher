@@ -1,0 +1,5 @@
+# This project is built on Linux (apxs/make). Normalise every text file to
+# LF in the repository AND on checkout, regardless of the platform it is
+# cloned to. Without this, a Makefile authored on Windows arrives with CRLF
+# endings and GNU make fails with "missing separator".
+* text=auto eol=lf
