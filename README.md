@@ -44,6 +44,45 @@ Verify the module loaded: `httpd -M | grep cacher`.
 Do this on staging only, on a throwaway vhost - not in front of anything
 that matters, and not over an authenticated area on the first pass.
 
+### Will this disturb an Apache that's already running?
+
+Steps 1-5 below will not. Building (`make`) and installing (`make install`)
+only write files - they never touch Apache's config and never load
+anything. A running server carries on untouched. You can get the single
+most valuable signal here (does it compile at all?) at zero risk.
+
+The risk begins only when you add `LoadModule` and restart. From then on:
+
+- **The module runs on every request server-wide**, because it registers a
+  `quick_handler`. It exits immediately with `DECLINED` unless that
+  directory has `CacherEnable On` (the default is Off), so the active code
+  path is a config lookup and one integer comparison - but it *is* running
+  everywhere, so a bug in that path affects the whole server, not just
+  cached directories.
+- **A crash takes out the Apache worker handling that request.** With
+  prefork/worker MPMs, Apache respawns the child, so it usually shows up
+  as intermittent 500s or dropped connections rather than a hard outage.
+- **A failure at startup keeps Apache from starting at all** - which is
+  why `apachectl configtest` before every restart is non-negotiable.
+
+**Rollback** is always: comment out the `LoadModule` line, run
+`apachectl configtest`, restart. The module leaves no other trace in the
+config, and cached files under `CacherCacheRoot` are inert once it's
+unloaded (delete them at your leisure).
+
+**Safest option of all** - don't load it into the live Apache at first.
+Run a throwaway instance on another port with its own minimal config:
+
+```bash
+sudo httpd -f /opt/cacher/test.conf -X -e debug
+```
+
+A minimal `test.conf` needs `Listen 8080`, the `LoadModule` lines for the
+MPM/core modules your build requires plus `mod_cacher`, a `DocumentRoot`,
+`CacherCacheRoot`, and an `ErrorLog`. `-X` keeps it in the foreground as a
+single process, so a segfault ends that process and nothing else - your
+production Apache on :80 never notices.
+
 **1. Copy the project over**
 
 ```bash
@@ -81,8 +120,38 @@ This is the first real compile of this code - expect to fix errors here.
 cd /opt/cacher && sudo make install
 ```
 
-`apxs -i -a` drops the `.so` in the modules dir and adds the `LoadModule`
-line. Confirm: `apachectl -M | grep cacher`.
+`make install` runs `apxs -i`: it copies the `.so` into Apache's modules
+directory and **does nothing else**. It does not edit any config and does
+not load the module, so a running Apache is completely unaffected at this
+point. Nothing changes until you add the `LoadModule` line yourself.
+
+Back up the config before that:
+
+```bash
+sudo cp /etc/httpd/conf/httpd.conf /etc/httpd/conf/httpd.conf.bak   # RHEL/Amazon Linux
+```
+
+Then add the line (adjust the path to match the other `LoadModule` lines
+on your system):
+
+```apache
+LoadModule cacher_module modules/mod_cacher.so
+```
+
+**Always validate before restarting** - this is what stops a bad module
+from taking the site down:
+
+```bash
+sudo apachectl configtest && sudo apachectl -k graceful
+```
+
+If `configtest` fails, do not restart: the currently running Apache keeps
+serving with its old config, and you can just remove the line. Confirm the
+module loaded with `apachectl -M | grep cacher`.
+
+(`make enable` does the install *and* the config edit in one step via
+`apxs -i -a`. It's there for convenience but skips the backup and the
+configtest gate, so prefer the manual route on any server that matters.)
 
 **6. Create the cache directory, owned by the Apache runtime user**
 
