@@ -65,10 +65,35 @@ The risk begins only when you add `LoadModule` and restart. From then on:
 - **A failure at startup keeps Apache from starting at all** - which is
   why `apachectl configtest` before every restart is non-negotiable.
 
-**Rollback** is always: comment out the `LoadModule` line, run
-`apachectl configtest`, restart. The module leaves no other trace in the
-config, and cached files under `CacherCacheRoot` are inert once it's
-unloaded (delete them at your leisure).
+### Getting back to a working Apache
+
+Everything this module installs is additive and removable. It puts exactly
+four things on a server:
+
+1. `mod_cacher.so` in Apache's modules directory (a new file - no existing
+   module is named this, so nothing is overwritten)
+2. one `LoadModule` line in the Apache config
+3. the `CacherCacheRoot` directory, and cache files beneath it
+4. whatever `.htaccess` / rules JSON you add yourself
+
+**It never writes to or deletes anything outside `CacherCacheRoot`.** Every
+cache path is built as `<root>/<2 hex>/<2 hex>/<32 hex>.{header,body}` from
+an MD5 hex digest - `[0-9a-f]` only - so no request can direct a write or a
+delete outside that tree.
+
+Undo it completely (RHEL/Amazon Linux paths; Debian/Ubuntu uses
+`/etc/apache2/apache2.conf` and `/usr/lib/apache2/modules`):
+
+```bash
+sudo cp /etc/httpd/conf/httpd.conf.bak /etc/httpd/conf/httpd.conf   # or: sudo sed -i '/mod_cacher/d' /etc/httpd/conf/httpd.conf
+sudo apachectl configtest && sudo systemctl restart httpd
+sudo rm -f /etc/httpd/modules/mod_cacher.so
+sudo rm -rf /var/cache/cacher
+```
+
+Apache is then in exactly the state it was before. If it won't start at
+all, the first two lines are the whole fix - the `.so` and cache files are
+inert once nothing loads them.
 
 **Safest option of all** - don't load it into the live Apache at first.
 Run a throwaway instance on another port with its own minimal config:
