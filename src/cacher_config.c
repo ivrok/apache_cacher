@@ -8,6 +8,11 @@
 #include "apr_thread_mutex.h"
 #include "http_log.h"
 
+/* Without this, aplog_module_index stays NULL in this translation unit and
+ * APLOG_MARK reports APLOG_NO_MODULE - meaning "LogLevel cacher:trace1"
+ * would silently not apply to anything logged from this file. */
+APLOG_USE_MODULE(cacher);
+
 /*
  * Process-wide cache of parsed CacherRulesFile rulesets, keyed by resolved
  * path, so a rules file is only re-read/re-parsed when its mtime or size

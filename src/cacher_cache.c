@@ -13,6 +13,10 @@
 #include "cacher_config.h"
 #include "cacher_util.h"
 
+/* See the note in cacher_config.c - required for "LogLevel cacher:trace1"
+ * to apply to messages logged from this file. */
+APLOG_USE_MODULE(cacher);
+
 /* On-disk header file layout: this fixed-size struct, followed by a raw
  * "Name: value\r\n" block terminated by a blank line. Not portable across
  * architectures/endianness by design - this is a same-machine local cache,
