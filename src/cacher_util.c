@@ -5,6 +5,16 @@
 
 #include "apr_strings.h"
 
+request_rec *cacher_original_request(request_rec *r)
+{
+    request_rec *top = r;
+
+    while (top->prev) {
+        top = top->prev;
+    }
+    return top;
+}
+
 int cacher_header_name_is(const char *name, const char *target)
 {
     while (*name && *target) {

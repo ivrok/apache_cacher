@@ -23,4 +23,18 @@ const char *cacher_get_cookie(request_rec *r, const char *name);
  * (whose case Apache does not normalize). */
 int cacher_header_name_is(const char *name, const char *target);
 
+/*
+ * Returns the outermost request in an internal-redirect chain - the one
+ * holding the URI the client actually asked for.
+ *
+ * Front-controller rewrites do an internal redirect rather than a plain
+ * URI edit. WordPress's "RewriteRule . /index.php [L]" is the common case:
+ * by the time a handler runs, r->uri is "/index.php" for every page on the
+ * site. Matching rules against that defeats every path-based exclusion
+ * (the exclusion fires on the original URI, then the redirected request
+ * sails past it), and keying the cache on it makes every page on the site
+ * collide into a single entry.
+ */
+request_rec *cacher_original_request(request_rec *r);
+
 #endif /* CACHER_UTIL_H */

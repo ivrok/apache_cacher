@@ -39,9 +39,17 @@ static int cacher_handler(request_rec *r)
     cacher_svr_conf *sconf;
     const cacher_ruleset *rs;
     const cacher_rule *rule;
+    request_rec *orig;
     apr_file_t *body;
     int status;
     apr_off_t length;
+
+    /* Subrequests (SSI includes and friends) are fragments of another
+     * response, not independently addressable resources - never cache or
+     * serve them in their own right. */
+    if (r->main) {
+        return DECLINED;
+    }
 
     dconf = ap_get_module_config(r->per_dir_config, &cacher_module);
     if (!dconf || dconf->enabled != 1) {
@@ -58,24 +66,30 @@ static int cacher_handler(request_rec *r)
         return DECLINED;
     }
 
-    rule = cacher_ruleset_match(rs, r->parsed_uri.path ? r->parsed_uri.path : r->uri,
-                                 r->args, r->method);
+    /* Match on what the client asked for, not the post-rewrite URI - see
+     * cacher_original_request(). Without this, a front-controller rewrite
+     * turns every request into "/index.php" and every path exclusion is
+     * silently bypassed by the redirected request. */
+    orig = cacher_original_request(r);
+
+    rule = cacher_ruleset_match(rs, orig->parsed_uri.path ? orig->parsed_uri.path : orig->uri,
+                                 orig->args, r->method);
     if (!rule) {
         ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
-                      "cacher: %s %s matched no rule", r->method, r->uri);
+                      "cacher: %s %s matched no rule", r->method, orig->uri);
         return DECLINED;
     }
 
     if (!rule->enabled) {
         ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
                       "cacher: %s %s matched an exclusion rule - not cacheable",
-                      r->method, r->uri);
+                      r->method, orig->uri);
         return DECLINED;
     }
 
     if (cacher_request_bypasses(r, rule)) {
         ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
-                      "cacher: %s %s bypassed (matching cookie present)", r->method, r->uri);
+                      "cacher: %s %s bypassed (matching cookie present)", r->method, orig->uri);
         return DECLINED;
     }
 
@@ -93,7 +107,7 @@ static int cacher_handler(request_rec *r)
         APR_BRIGADE_INSERT_TAIL(bb, apr_bucket_eos_create(r->connection->bucket_alloc));
 
         ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
-                      "cacher: %s %s served from cache", r->method, r->uri);
+                      "cacher: %s %s served from cache", r->method, orig->uri);
 
         ap_pass_brigade(r->output_filters, bb);
         return OK;

@@ -62,13 +62,17 @@ static void hex_encode_md5(const unsigned char digest[APR_MD5_DIGESTSIZE], char 
  * values in order. */
 static char *build_cache_key_string(request_rec *r, const cacher_rule *rule)
 {
+    /* Key on the client-visible URI, not r->uri: after a front-controller
+     * rewrite every page is "/index.php", which would collapse the whole
+     * site into one cache entry. */
+    request_rec *orig = cacher_original_request(r);
     char *key;
     int i;
 
     key = apr_pstrcat(r->pool,
                        r->method, "\n",
                        r->hostname ? r->hostname : "", "\n",
-                       r->uri, r->args ? "?" : "", r->args ? r->args : "",
+                       orig->uri, orig->args ? "?" : "", orig->args ? orig->args : "",
                        NULL);
 
     if (rule->vary) {
