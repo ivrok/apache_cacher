@@ -59,6 +59,8 @@ void *cacher_merge_dir_config(apr_pool_t *p, void *basev, void *newv)
 void *cacher_create_server_config(apr_pool_t *p, server_rec *s)
 {
     cacher_svr_conf *conf = apr_pcalloc(p, sizeof(*conf));
+
+    (void) s;
     conf->cache_root = NULL;
     return conf;
 }
@@ -76,6 +78,8 @@ void *cacher_merge_server_config(apr_pool_t *p, void *basev, void *newv)
 static const char *cacher_set_enable(cmd_parms *cmd, void *dconf, int flag)
 {
     cacher_dir_conf *conf = dconf;
+
+    (void) cmd;
     conf->enabled = flag ? 1 : 0;
     return NULL;
 }
@@ -98,6 +102,8 @@ static const char *cacher_set_cache_root(cmd_parms *cmd, void *dconf, const char
 {
     cacher_svr_conf *conf = ap_get_module_config(cmd->server->module_config,
                                                   &cacher_module);
+
+    (void) dconf;
     conf->cache_root = apr_pstrdup(cmd->pool, arg);
     return NULL;
 }

@@ -18,12 +18,21 @@ install:
 enable:
 	$(APXS) -i -a $(INC) $(SRC)
 
+# Rebuild with warnings on, showing only our own code (cJSON is upstream).
+# Should print nothing - anything it prints is worth reading.
+warn:
+	@$(MAKE) clean >/dev/null
+	@$(APXS) -c -Wc,-Wall -Wc,-Wextra $(INC) $(SRC) 2>&1 \
+		| grep -E 'warning:|error:' | grep -v third_party || echo "No warnings."
+
 test:
 	$(CC) -Isrc -Ithird_party -o test/test_rules_parse \
 		test/test_rules_parse.c src/cacher_rules.c third_party/cJSON.c
 	./test/test_rules_parse
 
 clean:
-	rm -rf src/*.o src/*.lo src/*.slo src/.libs .libs *.o *.lo *.slo test/test_rules_parse
+	rm -rf src/*.o src/*.lo src/*.slo src/*.la src/.libs \
+		third_party/*.o third_party/*.lo third_party/*.slo third_party/.libs \
+		.libs *.o *.lo *.slo test/test_rules_parse
 
-.PHONY: all install enable test clean
+.PHONY: all install enable warn test clean

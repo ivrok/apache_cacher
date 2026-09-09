@@ -100,5 +100,6 @@ AP_DECLARE_MODULE(cacher) = {
     cacher_create_server_config,
     cacher_merge_server_config,
     cacher_cmds,
-    cacher_register_hooks
+    cacher_register_hooks,
+    AP_MODULE_FLAG_NONE
 };
