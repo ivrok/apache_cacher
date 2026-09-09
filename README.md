@@ -381,6 +381,35 @@ GET  /cacher-admin/full-reset        purge everything
 `/cacher-admin` on its own prints usage. Purge returns `404` when nothing
 matched, so a script can tell the difference.
 
+### Front-controller apps: exempt the path from the rewrite
+
+WordPress, Laravel, Symfony and friends route every unmatched URL to a
+single entry point:
+
+```apache
+RewriteRule . /index.php [L]
+```
+
+That is an **internal redirect**, so by the time any handler runs the URI
+is `/index.php` and the admin path is gone - you get the application's own
+404 instead of the endpoint. Exempt it, above the application's block:
+
+```apache
+<IfModule mod_rewrite.c>
+RewriteEngine On
+RewriteRule ^cacher-admin - [END]
+</IfModule>
+```
+
+(`[END]` rather than `[L]` so no later rewrite round can pick it up again.)
+
+This is not merely cosmetic. `<Location>` is matched against the
+post-rewrite URI as well, so a rewritten admin request would also lose the
+`Require` rules protecting it. The module therefore **refuses** to serve
+the endpoint when it sees the request arrived by rewrite, and logs a
+warning naming this fix - rather than quietly running cache administration
+with its access control no longer in effect.
+
 ### These endpoints have no authentication - you must add it
 
 An open `full-reset` URL is a denial-of-service button: each call forces

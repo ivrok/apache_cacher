@@ -63,10 +63,33 @@ static int cacher_handler(request_rec *r)
     sconf = ap_get_module_config(r->server->module_config, &cacher_module);
     if (sconf && sconf->admin_path) {
         apr_size_t admin_len = strlen(sconf->admin_path);
+        request_rec *top = cacher_original_request(r);
 
         if (strncmp(r->uri, sconf->admin_path, admin_len) == 0
             && (r->uri[admin_len] == '\0' || r->uri[admin_len] == '/')) {
             return cacher_admin_handle(r, sconf->cache_root, r->uri + admin_len);
+        }
+
+        /*
+         * The client asked for the admin path, but a rewrite redirected the
+         * request elsewhere before we ran. Matching on the original URI here
+         * would make the endpoint work - and would be a security bug:
+         * <Location> is matched against the POST-rewrite URI, so any
+         * Require/auth guarding the admin path no longer applies to this
+         * request. Serving it would run cache administration with its access
+         * control silently switched off. Refuse, and say how to fix it.
+         */
+        if (top != r
+            && strncmp(top->uri, sconf->admin_path, admin_len) == 0
+            && (top->uri[admin_len] == '\0' || top->uri[admin_len] == '/')) {
+            ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
+                          "cacher: '%s' was rewritten to '%s' before reaching the "
+                          "handler, so any <Location %s> access control no longer "
+                          "applies - refusing to serve the admin endpoint. Exempt "
+                          "it from the front-controller rewrite, e.g. "
+                          "'RewriteRule ^%s - [END]' above the application's rules.",
+                          top->uri, r->uri, sconf->admin_path, sconf->admin_path + 1);
+            return DECLINED;
         }
     }
 
