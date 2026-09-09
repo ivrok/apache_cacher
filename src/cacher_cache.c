@@ -17,17 +17,26 @@
  * to apply to messages logged from this file. */
 APLOG_USE_MODULE(cacher);
 
-/* On-disk header file layout: this fixed-size struct, followed by a raw
- * "Name: value\r\n" block terminated by a blank line. Not portable across
- * architectures/endianness by design - this is a same-machine local cache,
- * not a transfer format. */
-#define CACHER_CACHE_MAGIC 0x43414331u /* "CAC1" */
-
-typedef struct {
-    apr_uint32_t magic;
-    apr_time_t expires;
-    int status;
-} cacher_cache_meta;
+/*
+ * On-disk .header layout - deliberately plain text:
+ *
+ *     CACHER/2
+ *     expires <unix seconds>
+ *     status <http status>
+ *     url <METHOD> <host> <path[?query]>
+ *     <blank line>
+ *     Name: value\r\n        (the stored response headers, to end of file)
+ *
+ * Text rather than a dumped C struct so the cache is inspectable with
+ * `head` and readable from any language - the purge/list tooling depends
+ * on that. Parsing four short lines is nothing next to the file open that
+ * precedes it.
+ *
+ * The version on line 1 is checked on read: bumping it makes every older
+ * entry read as a miss and regenerate, so a format change needs no
+ * migration step.
+ */
+#define CACHER_HEADER_VERSION "CACHER/2"
 
 /* Per-request state for the CACHER_OUT output filter, allocated once at
  * insertion time (cacher_cache_insert_filter) and threaded through every
@@ -188,10 +197,10 @@ static int dump_header_cb(void *rec, const char *key, const char *value)
 static void finalize_cache_entry(request_rec *r, cacher_out_ctx *ctx)
 {
     header_dump_ctx hctx;
-    char *header_text;
+    request_rec *orig = cacher_original_request(r);
+    char *file_text;
     char *tmp_header_path;
     apr_file_t *hf;
-    cacher_cache_meta meta;
     apr_status_t rv;
 
     apr_file_close(ctx->tmp_body_file);
@@ -199,11 +208,23 @@ static void finalize_cache_entry(request_rec *r, cacher_out_ctx *ctx)
     hctx.text = "";
     hctx.pool = r->pool;
     apr_table_do(dump_header_cb, &hctx, r->headers_out, NULL);
-    header_text = apr_pstrcat(r->pool, hctx.text, "\r\n", NULL);
 
-    meta.magic = CACHER_CACHE_MAGIC;
-    meta.status = r->status;
-    meta.expires = apr_time_now() + apr_time_from_sec(ctx->rule->ttl_seconds);
+    /* The url line is what makes targeted purging possible: without it a
+     * cache file is an opaque hash with no way back to the request. */
+    file_text = apr_psprintf(r->pool,
+                              CACHER_HEADER_VERSION "\n"
+                              "expires %" APR_INT64_T_FMT "\n"
+                              "status %d\n"
+                              "url %s %s %s%s%s\n"
+                              "\n%s",
+                              (apr_int64_t) (apr_time_sec(apr_time_now()) + ctx->rule->ttl_seconds),
+                              r->status,
+                              r->method,
+                              r->hostname ? r->hostname : "-",
+                              orig->uri,
+                              orig->args ? "?" : "",
+                              orig->args ? orig->args : "",
+                              hctx.text);
 
     tmp_header_path = apr_pstrcat(r->pool, ctx->header_path, ".XXXXXX", NULL);
     rv = apr_file_mktemp(&hf, tmp_header_path,
@@ -216,8 +237,7 @@ static void finalize_cache_entry(request_rec *r, cacher_out_ctx *ctx)
         return;
     }
 
-    if (apr_file_write_full(hf, &meta, sizeof(meta), NULL) != APR_SUCCESS
-        || apr_file_write_full(hf, header_text, strlen(header_text), NULL) != APR_SUCCESS) {
+    if (apr_file_write_full(hf, file_text, strlen(file_text), NULL) != APR_SUCCESS) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
                       "cacher: could not write temp header file for '%s'", ctx->header_path);
         apr_file_close(hf);
@@ -334,10 +354,11 @@ apr_file_t *cacher_cache_lookup(request_rec *r, const char *cache_root,
     char *body_path;
     apr_file_t *hf;
     apr_file_t *bf;
-    cacher_cache_meta meta;
     apr_finfo_t finfo;
-    char *header_text;
-    apr_off_t header_text_len;
+    char *text;
+    char *headers_at;
+    apr_int64_t expires = 0;
+    int status = 0;
     char *line;
     char *last;
 
@@ -353,36 +374,46 @@ apr_file_t *cacher_cache_lookup(request_rec *r, const char *cache_root,
         return NULL; /* MISS */
     }
 
-    if (apr_file_read_full(hf, &meta, sizeof(meta), NULL) != APR_SUCCESS || meta.magic != CACHER_CACHE_MAGIC) {
+    if (apr_file_info_get(&finfo, APR_FINFO_SIZE, hf) != APR_SUCCESS || finfo.size <= 0) {
         apr_file_close(hf);
         return NULL;
     }
 
-    if (meta.expires <= apr_time_now()) {
-        apr_file_close(hf);
-        return NULL; /* expired -> MISS */
-    }
-
-    if (apr_file_info_get(&finfo, APR_FINFO_SIZE, hf) != APR_SUCCESS) {
+    text = apr_palloc(r->pool, (apr_size_t) finfo.size + 1);
+    if (apr_file_read_full(hf, text, (apr_size_t) finfo.size, NULL) != APR_SUCCESS) {
         apr_file_close(hf);
         return NULL;
     }
-    header_text_len = finfo.size - (apr_off_t) sizeof(meta);
-    if (header_text_len < 0) {
-        apr_file_close(hf);
-        return NULL;
-    }
-
-    header_text = apr_palloc(r->pool, (apr_size_t) header_text_len + 1);
-    if (header_text_len > 0
-        && apr_file_read_full(hf, header_text, (apr_size_t) header_text_len, NULL) != APR_SUCCESS) {
-        apr_file_close(hf);
-        return NULL;
-    }
-    header_text[header_text_len] = '\0';
+    text[finfo.size] = '\0';
     apr_file_close(hf);
 
-    for (line = apr_strtok(header_text, "\r\n", &last); line; line = apr_strtok(NULL, "\r\n", &last)) {
+    if (strncmp(text, CACHER_HEADER_VERSION "\n", sizeof(CACHER_HEADER_VERSION)) != 0) {
+        /* Written by a different version of the on-disk format - treat as
+         * a miss so it is simply regenerated. */
+        return NULL;
+    }
+
+    /* Metadata runs to the first blank line; the response headers follow. */
+    headers_at = strstr(text, "\n\n");
+    if (!headers_at) {
+        return NULL;
+    }
+    *headers_at = '\0';
+    headers_at += 2;
+
+    for (line = apr_strtok(text, "\n", &last); line; line = apr_strtok(NULL, "\n", &last)) {
+        if (strncmp(line, "expires ", 8) == 0) {
+            expires = apr_atoi64(line + 8);
+        } else if (strncmp(line, "status ", 7) == 0) {
+            status = (int) apr_atoi64(line + 7);
+        }
+    }
+
+    if (status == 0 || expires <= (apr_int64_t) apr_time_sec(apr_time_now())) {
+        return NULL; /* malformed, or expired -> MISS */
+    }
+
+    for (line = apr_strtok(headers_at, "\r\n", &last); line; line = apr_strtok(NULL, "\r\n", &last)) {
         char *colon = strchr(line, ':');
         char *name;
         char *value;
@@ -419,7 +450,7 @@ apr_file_t *cacher_cache_lookup(request_rec *r, const char *cache_root,
         return NULL;
     }
 
-    *out_status = meta.status;
+    *out_status = status;
     *out_length = finfo.size;
     return bf;
 }

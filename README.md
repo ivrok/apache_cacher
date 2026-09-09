@@ -361,25 +361,44 @@ Once built and loaded, with `CacherEnable On` + a rule matching some path:
 7. `ab -c 20 -n 200 http://host/path` against a MISS URL - confirm no
    corrupted/partial cache files and no crash under concurrent regeneration.
 
-## Purging the cache
+## Controlling the cache: the `cacher` tool
 
-There's no purge API in v1 - the on-disk layout is intentionally simple
-enough that the filesystem itself is the purge tool:
+`make install` puts a `cacher` command in `/usr/local/bin` (override with
+`BINDIR=`). It reads the plain-text `.header` files directly, so it needs
+no Apache and no Python packages.
 
-- **Purge everything**: stop relying on stale files being served (they
-  expire on their own via `ttl`), or just `rm -rf` the contents of
-  `CacherCacheRoot` - a fresh MISS regenerates each entry on next request.
-- **Purge one entry**: it isn't practical to reverse-compute a specific
-  URL's hash by hand; instead, either lower that rule's `ttl` temporarily,
-  or clear the whole shard prefix it happens to fall under (the first 4
-  hex characters of the MD5 of `METHOD\nHost\nPath?query\n...vary...`).
-- Because writes are atomic (temp file + rename), it's always safe to
-  delete cache files while the server is running - a request mid-flight
-  either sees the old file or a fresh MISS, never a corrupt read.
+```bash
+cacher list                 # every cached entry: method, status, size, TTL left, URL
+cacher purge '/blog/*'      # delete entries whose URL matches a glob
+cacher purge '/about/' -n   # dry run - show what would go, delete nothing
+cacher full-reset           # delete everything, including orphans and empty shards
+```
+
+Point it elsewhere with `--root /path` or `CACHER_ROOT=/path`.
+
+**Exit codes**, so it can be driven from cron or PHP: `0` success (for
+`purge`, at least one entry matched), `1` nothing matched, `2` usage or
+missing cache root.
+
+Globs match the URL path, and also `host/path`, so `'/blog/*'` works
+without thinking about the host and `'example.com/*'` works when several
+vhosts share one cache root.
+
+**Running it against a live server is safe.** Entries are published by
+atomic rename, and a request already streaming a body holds an open file
+descriptor that stays valid even after the file is unlinked - so a purge
+mid-request neither corrupts the response nor errors.
+
+What still has no automatic trigger: **a content change does not
+invalidate anything**. Edit a page in WordPress and the old copy serves
+until its `ttl` runs out. Hooking `cacher purge` into the application's
+save events is the way to close that, and the exit codes above exist for
+exactly that purpose.
 
 ## Project layout
 
 ```
+tools/           cacher CLI (list / purge / full-reset)
 src/             module source (mod_cacher.c + cacher_{config,rules,cache,util}.{h,c})
 third_party/     vendored cJSON (MIT) - see third_party/cJSON.h for license
 test/            standalone unit tests (no Apache headers required)

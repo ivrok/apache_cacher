@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""
+cacher - inspect and purge a mod_cacher disk cache.
+
+    cacher list                     show every cached entry
+    cacher purge '/blog/*'          delete entries whose URL path matches
+    cacher full-reset               delete every entry
+
+Reads the plain-text .header files written by mod_cacher, so it needs no
+Apache, no module, and no third-party packages. Safe to run while Apache
+is serving: entries are published by atomic rename, and a request already
+reading a file keeps its open descriptor even if the file is unlinked.
+
+Exit codes (for cron and PHP callers):
+    0  success (for purge: at least one entry matched and was deleted)
+    1  nothing matched
+    2  usage or environment error
+"""
+
+import argparse
+import fnmatch
+import os
+import sys
+import time
+
+DEFAULT_ROOT = "/var/cache/cacher"
+HEADER_VERSION = "CACHER/2"
+
+
+class Entry:
+    """One cache entry: its .header metadata plus the paired .body file."""
+
+    def __init__(self, header_path):
+        self.header_path = header_path
+        self.body_path = header_path[: -len(".header")] + ".body"
+        self.expires = 0
+        self.status = 0
+        self.method = "-"
+        self.host = "-"
+        self.url = "-"
+        self.valid = False
+
+    def load(self):
+        try:
+            with open(self.header_path, "r", encoding="utf-8", errors="replace") as fh:
+                meta = fh.read(4096).split("\n\n", 1)[0]
+        except OSError:
+            return False
+
+        lines = meta.split("\n")
+        if not lines or lines[0].strip() != HEADER_VERSION:
+            return False
+
+        for line in lines[1:]:
+            key, _, value = line.partition(" ")
+            if key == "expires":
+                self.expires = int(value) if value.strip().isdigit() else 0
+            elif key == "status":
+                self.status = int(value) if value.strip().isdigit() else 0
+            elif key == "url":
+                parts = value.split(" ", 2)
+                if len(parts) == 3:
+                    self.method, self.host, self.url = parts
+
+        self.valid = True
+        return True
+
+    @property
+    def size(self):
+        try:
+            return os.path.getsize(self.body_path)
+        except OSError:
+            return 0
+
+    @property
+    def ttl_left(self):
+        return self.expires - int(time.time())
+
+    def delete(self):
+        """Remove body first, then header: a reader only trusts an entry
+        once its header exists, so the header must be the last thing to go."""
+        removed = False
+        for path in (self.body_path, self.header_path):
+            try:
+                os.unlink(path)
+                removed = True
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                print("could not delete %s: %s" % (path, exc), file=sys.stderr)
+        return removed
+
+
+def iter_entries(root):
+    if not os.path.isdir(root):
+        print("cache root not found: %s" % root, file=sys.stderr)
+        sys.exit(2)
+
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for name in filenames:
+            if not name.endswith(".header"):
+                continue
+            entry = Entry(os.path.join(dirpath, name))
+            if entry.load():
+                yield entry
+
+
+def human_size(n):
+    for unit in ("B", "K", "M", "G"):
+        if n < 1024 or unit == "G":
+            return "%d%s" % (n, unit) if unit == "B" else "%.1f%s" % (n, unit)
+        n /= 1024.0
+
+
+def cmd_list(args):
+    entries = sorted(iter_entries(args.root), key=lambda e: (e.host, e.url))
+    if not entries:
+        print("cache is empty")
+        return 1
+
+    total = 0
+    print("%-6s %-7s %-9s %-8s %s" % ("METHOD", "STATUS", "SIZE", "EXPIRES", "URL"))
+    for entry in entries:
+        total += entry.size
+        left = entry.ttl_left
+        expires = "%ds" % left if left > 0 else "STALE"
+        print("%-6s %-7d %-9s %-8s %s%s"
+              % (entry.method, entry.status, human_size(entry.size),
+                 expires, entry.host, entry.url))
+
+    print("\n%d entr%s, %s total"
+          % (len(entries), "y" if len(entries) == 1 else "ies", human_size(total)))
+    return 0
+
+
+def cmd_purge(args):
+    pattern = args.pattern
+    # A bare path pattern is the common case; make '/blog/*' match without
+    # forcing the user to think about the host prefix.
+    matched = 0
+
+    for entry in iter_entries(args.root):
+        target = entry.url
+        if fnmatch.fnmatch(target, pattern) or fnmatch.fnmatch(entry.host + target, pattern):
+            if args.dry_run:
+                print("would purge %s%s" % (entry.host, entry.url))
+                matched += 1
+            elif entry.delete():
+                print("purged %s%s" % (entry.host, entry.url))
+                matched += 1
+
+    if not matched:
+        print("no entries matched %s" % pattern, file=sys.stderr)
+        return 1
+
+    print("\n%d entr%s %s" % (matched, "y" if matched == 1 else "ies",
+                              "would be purged" if args.dry_run else "purged"))
+    return 0
+
+
+def cmd_full_reset(args):
+    removed = 0
+    for entry in iter_entries(args.root):
+        if entry.delete():
+            removed += 1
+
+    # Sweep up empty shard directories and any orphaned .body files left by
+    # an interrupted write.
+    for dirpath, dirnames, filenames in os.walk(args.root, topdown=False):
+        for name in filenames:
+            if name.endswith(".body") or ".XXXXXX" in name or ".tmp" in name:
+                try:
+                    os.unlink(os.path.join(dirpath, name))
+                except OSError:
+                    pass
+        if dirpath != args.root and not os.listdir(dirpath):
+            try:
+                os.rmdir(dirpath)
+            except OSError:
+                pass
+
+    print("removed %d entries from %s" % (removed, args.root))
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="cacher", description="Inspect and purge a mod_cacher disk cache.")
+    parser.add_argument("--root", default=os.environ.get("CACHER_ROOT", DEFAULT_ROOT),
+                        help="cache root (default: %s, or $CACHER_ROOT)" % DEFAULT_ROOT)
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("list", help="show every cached entry")
+
+    purge = sub.add_parser("purge", help="delete entries whose URL matches a glob")
+    purge.add_argument("pattern", help="glob, e.g. '/blog/*' or '/about/'")
+    purge.add_argument("-n", "--dry-run", action="store_true",
+                       help="show what would be deleted, delete nothing")
+
+    sub.add_parser("full-reset", help="delete every cached entry")
+
+    args = parser.parse_args()
+
+    if args.command == "list":
+        return cmd_list(args)
+    if args.command == "purge":
+        return cmd_purge(args)
+    if args.command == "full-reset":
+        return cmd_full_reset(args)
+
+    parser.print_help()
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

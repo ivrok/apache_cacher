@@ -4,6 +4,7 @@ INC   = -Ithird_party
 
 MODULE = src/mod_cacher.la
 NAME   = cacher
+BINDIR ?= /usr/local/bin
 
 # Compile only. Touches nothing outside this directory - safe on a live server.
 all: $(MODULE)
@@ -20,6 +21,8 @@ $(MODULE): $(SRC)
 # and then fail looking for a .so that was never installed.
 install: $(MODULE)
 	$(APXS) -i -n $(NAME) $(MODULE)
+	install -m 0755 tools/cacher $(BINDIR)/cacher
+	@echo "installed $(BINDIR)/cacher (list / purge / full-reset)"
 
 # Install AND add the LoadModule line to the main Apache config (apxs -a).
 # This edits the config. Back it up first and run `apachectl configtest`
