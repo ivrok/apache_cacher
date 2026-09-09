@@ -30,14 +30,23 @@ splitting them would have meant a real, if temporary, security gap.
 - Directives parse; `apachectl configtest` returns `Syntax OK`
 - Inert when no directory sets `CacherEnable On` - existing sites unaffected
 
+- **End-to-end cache hit driven purely by `.htaccess`** - a second request
+  is served from disk without the backend re-running, with only
+  `CacherCacheRoot` set at server level and all rules coming from
+  `CacherEnable` + `CacherRulesFile` in a directory's `.htaccess`
+- Sharded on-disk layout written as designed
+  (`<root>/9e/1a/9e1af0c7….{body,header}`)
+
 ### Not yet verified
 
-- **An end-to-end cache hit.** The first live test showed no caching at
-  all, traced to the read path running in a `quick_handler` where
-  `.htaccess` config does not yet exist. That is now fixed (it runs as a
-  content handler), but the fix itself has not been exercised against a
-  live request.
-- Cookie bypass, TTL expiry, `vary` partitioning, concurrent regeneration.
+- Cookie bypass, TTL expiry, `vary` partitioning, `methods` exclusion,
+  behaviour under concurrent regeneration.
+
+### Note on log locations
+
+`ap_log_rerror` messages go to the **vhost's** `ErrorLog`, not the main
+server log - check the vhost's own file when looking for `cacher:` trace
+lines.
 
 ## Build (Linux, primary target)
 
