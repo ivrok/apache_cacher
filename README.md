@@ -54,8 +54,9 @@ most valuable signal here (does it compile at all?) at zero risk.
 The risk begins only when you add `LoadModule` and restart. From then on:
 
 - **The module runs on every request server-wide**, because it registers a
-  `quick_handler`. It exits immediately with `DECLINED` unless that
-  directory has `CacherEnable On` (the default is Off), so the active code
+  content handler at `APR_HOOK_FIRST`. It exits immediately with `DECLINED`
+  unless that directory has `CacherEnable On` (the default is Off), so the
+  active code
   path is a config lookup and one integer comparison - but it *is* running
   everywhere, so a bug in that path affects the whole server, not just
   cached directories.
@@ -233,7 +234,7 @@ worth confirming early (curl matrix item 6).
 ### If something goes wrong
 
 - Segfault / Apache won't start → comment out the `LoadModule` line,
-  restart, and capture the error log. A crash in a `quick_handler` takes
+  restart, and capture the error log. A crash in the handler takes
   down the worker, which is exactly why this belongs on staging first.
 - 500s on every request → almost always `AllowOverride` (step 8) or a
   JSON syntax error; check the error log, the module logs parse failures
@@ -341,11 +342,18 @@ examples/        sample .htaccess + rules file
 
 See the plan history for the full list; the ones most likely to bite:
 
-- **Auth-bypass blast radius**: a HIT is served before Apache's auth phases
-  run. A rule enabled under an authenticated directory whose
-  `bypass_cookies` doesn't cover the app's real session cookie name could
-  leak private content to anonymous users. `CacherEnable` defaults to
-  **Off** for this reason - enable it deliberately, per directory.
+- **Cache hits run after authentication, not before.** The read path is a
+  content handler rather than a `quick_handler`, so a hit cannot be served
+  to a request that would have failed auth. This is a consequence of
+  needing `.htaccess` config at all: `quick_handler` fires before
+  `directory_walk`, so per-directory rules simply do not exist yet there -
+  which is why `mod_cache`'s own `CacheEnable` is server-config-only. Hits
+  still skip the content generator (PHP and friends), which is where the
+  cost of a dynamic request actually lives.
+- **Origin `Cache-Control` is ignored.** Cacher obeys only its own JSON
+  rules, so a backend replying `Cache-Control: no-store` will still be
+  cached if a rule matches. WordPress sends exactly that on normal page
+  responses, so point rules at paths you have actually reasoned about.
 - **`Set-Cookie` is never cached or replayed**, even for otherwise
   cacheable responses - it's stripped on both the write and read path so
   one visitor's session-establishing cookie can never leak to another

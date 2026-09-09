@@ -16,7 +16,24 @@
 #include "http_log.h"
 #include "http_protocol.h"
 
-static int cacher_quick_handler(request_rec *r, int lookup_uri)
+/*
+ * Runs as a content handler, NOT as a quick_handler.
+ *
+ * quick_handler is the obvious hook for a URI-keyed cache and is what
+ * mod_cache uses - but it fires before ap_process_request_internal(), so
+ * directory_walk has not run and r->per_dir_config holds only server
+ * defaults. Any CacherEnable/CacherRules set in .htaccess is therefore
+ * invisible there, which is precisely why mod_cache's own CacheEnable is
+ * server-config-only. Since per-directory .htaccess rules are the whole
+ * point of this module, the read path lives here instead.
+ *
+ * The trade-off is deliberate and favourable: a handler runs after the
+ * authentication and authorisation phases, so a cache hit can no longer
+ * be served to a request that would have failed auth. Cache hits still
+ * skip the actual content generator (PHP, etc.), which is where the cost
+ * of a dynamic request really lies.
+ */
+static int cacher_handler(request_rec *r)
 {
     cacher_dir_conf *dconf;
     cacher_svr_conf *sconf;
@@ -26,20 +43,25 @@ static int cacher_quick_handler(request_rec *r, int lookup_uri)
     int status;
     apr_off_t length;
 
-    (void) lookup_uri;
-
     dconf = ap_get_module_config(r->per_dir_config, &cacher_module);
     if (!dconf || dconf->enabled != 1) {
+        /* Deliberately silent: this hook runs for every request on the
+         * server, and the overwhelming majority are not Cacher-enabled. */
         return DECLINED;
     }
 
     rs = cacher_config_get_ruleset(r, dconf);
     if (!rs) {
+        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                      "cacher: %s enabled here but no usable rules "
+                      "(CacherRules/CacherRulesFile missing or failed to parse)", r->uri);
         return DECLINED;
     }
 
     rule = cacher_ruleset_match(rs, r->parsed_uri.path ? r->parsed_uri.path : r->uri, r->method);
     if (!rule) {
+        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                      "cacher: %s %s matched no rule", r->method, r->uri);
         return DECLINED;
     }
 
@@ -69,8 +91,10 @@ static int cacher_quick_handler(request_rec *r, int lookup_uri)
         return OK;
     }
 
-    /* MISS: capture this response to disk as it's generated, then let
-     * normal request processing run. */
+    /* MISS: attach the capture filter now, then DECLINE so the real
+     * content handler (PHP, static file, ...) generates the response.
+     * Adding an output filter here is safe - filters only need to be in
+     * place before content starts flowing, and this hook runs first. */
     cacher_cache_insert_filter(r, sconf ? sconf->cache_root : NULL, rule);
 
     return DECLINED;
@@ -90,7 +114,7 @@ static void cacher_register_hooks(apr_pool_t *p)
     cacher_cache_register_filter(p);
     ap_hook_post_config(cacher_post_config, NULL, NULL, APR_HOOK_MIDDLE);
     ap_hook_child_init(cacher_config_child_init, NULL, NULL, APR_HOOK_MIDDLE);
-    ap_hook_quick_handler(cacher_quick_handler, NULL, NULL, APR_HOOK_FIRST);
+    ap_hook_handler(cacher_handler, NULL, NULL, APR_HOOK_FIRST);
 }
 
 AP_DECLARE_MODULE(cacher) = {
