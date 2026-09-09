@@ -28,3 +28,7 @@ test/test_rules_parse.exe
 Thumbs.db
 .vscode/
 .idea/
+
+# Python bytecode (the cacher CLI is a script, never compiled artefacts)
+__pycache__/
+*.pyc

@@ -5,6 +5,12 @@ set caching rules per directory via `.htaccess`, similar in spirit to
 Cloudflare Cache Rules, including bypassing the cache when a visitor's
 session/auth cookie is present.
 
+## Documentation
+
+- [docs/INSTALL-ubuntu-ec2.md](docs/INSTALL-ubuntu-ec2.md) - step-by-step install on an Ubuntu EC2 host
+- [docs/RULES.md](docs/RULES.md) - writing cache rules, with worked examples
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) - every problem hit during a real install, with fixes
+
 ## Status
 
 In development. See the phase checklist below; each phase is independently
@@ -526,6 +532,7 @@ exactly that purpose.
 ## Project layout
 
 ```
+docs/            install, rules and troubleshooting guides
 tools/           cacher CLI (list / purge / full-reset)
 src/             module source (mod_cacher.c + cacher_{config,rules,cache,util}.{h,c})
 third_party/     vendored cJSON (MIT) - see third_party/cJSON.h for license
