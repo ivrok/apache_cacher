@@ -14,7 +14,7 @@ buildable and curl-testable.
 - [x] Phase 2 - JSON rule parsing + per-directory rules resolution/caching
 - [x] Phase 3 - disk cache write path (cache MISS)
 - [x] Phase 4 - cache read path + cookie bypass (cache HIT)
-- [x] Phase 5 - purge/inspection tooling (filesystem-based, documented below - no code needed, by design)
+- [x] Phase 5 - purge/inspection tooling (`cacher list` / `purge` / `full-reset`)
 - [ ] Phase 6 - Windows/WAMP portability pass
 
 Phases 3 and 4 were implemented together rather than strictly in sequence:
@@ -61,7 +61,7 @@ Requires the Apache dev headers (`apache2-dev` / `httpd-devel`) for `apxs`.
 
 ```sh
 make            # compile only - touches nothing outside this directory
-make install    # apxs -i: copies the .so into Apache's modules dir only
+make install    # apxs -i: copies the .so into Apache's modules dir, plus the cacher CLI
 make enable     # apxs -i -a: also adds LoadModule (edits Apache config)
 make test       # standalone rule-parser unit tests, no Apache needed
 make warn       # rebuild with -Wall -Wextra, showing only our own code
