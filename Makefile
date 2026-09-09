@@ -2,21 +2,30 @@ APXS ?= apxs
 SRC   = src/mod_cacher.c src/cacher_config.c src/cacher_rules.c src/cacher_cache.c src/cacher_util.c third_party/cJSON.c
 INC   = -Ithird_party
 
+MODULE = src/mod_cacher.la
+NAME   = cacher
+
 # Compile only. Touches nothing outside this directory - safe on a live server.
-all:
+all: $(MODULE)
+
+$(MODULE): $(SRC)
 	$(APXS) -c $(INC) $(SRC)
 
 # Copy the built module into Apache's modules dir. Does NOT edit any Apache
 # config and does NOT load the module - add the LoadModule line yourself when
 # you are ready. Nothing changes for a running Apache until you do.
-install:
-	$(APXS) -i $(INC) $(SRC)
+#
+# Note: apxs -i takes the built .la archive, NOT the source list. Passing
+# sources here makes it copy the first .c file into the modules directory
+# and then fail looking for a .so that was never installed.
+install: $(MODULE)
+	$(APXS) -i -n $(NAME) $(MODULE)
 
 # Install AND add the LoadModule line to the main Apache config (apxs -a).
-# This edits httpd.conf. Back it up first and run `apachectl configtest`
+# This edits the config. Back it up first and run `apachectl configtest`
 # before restarting.
-enable:
-	$(APXS) -i -a $(INC) $(SRC)
+enable: $(MODULE)
+	$(APXS) -i -a -n $(NAME) $(MODULE)
 
 # Rebuild with warnings on, showing only our own code (cJSON is upstream).
 # Should print nothing - anything it prints is worth reading.
