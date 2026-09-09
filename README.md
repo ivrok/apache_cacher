@@ -37,10 +37,17 @@ splitting them would have meant a real, if temporary, security gap.
 - Sharded on-disk layout written as designed
   (`<root>/9e/1a/9e1af0c7….{body,header}`)
 
+- **Cookie bypass** - a request carrying a `bypass_cookies` match is always
+  served fresh, never from the shared cache
+- **TTL expiry** - an entry past its `ttl` produces a miss and regenerates
+- **`methods` exclusion** - a POST to a GET/HEAD-only rule writes nothing
+- **Concurrency** - `ab -c 20 -n 200` produced exactly one cache entry with
+  no corruption, no partial files, and no worker crashes
+
 ### Not yet verified
 
-- Cookie bypass, TTL expiry, `vary` partitioning, `methods` exclusion,
-  behaviour under concurrent regeneration.
+- `vary` partitioning (header- and `cookie:`-keyed cache splitting)
+- Long-run behaviour: cache growth over time, many distinct URLs
 
 ### Note on log locations
 
@@ -286,7 +293,7 @@ semantics) before relying on this in production on Windows.
 | Directive | Context | Description |
 |---|---|---|
 | `CacherEnable On\|Off` | `.htaccess`, `<Directory>` | Enable Cacher for this directory. **Default: Off** - must be explicitly opted in. |
-| `CacherRules '<json>'` | `.htaccess`, `<Directory>` | Inline JSON rules (see schema below). Re-parsed every request - fine for small rule sets. |
+| `CacherRules '<json>'` | `.htaccess`, `<Directory>` | Inline JSON rules (see schema below). Wrap the JSON in **single quotes** so its own double quotes survive. Re-parsed every request - fine for small rule sets, but `CacherRulesFile` is easier to read and avoids quoting entirely. |
 | `CacherRulesFile <path>` | `.htaccess`, `<Directory>` | Path to a JSON rules file, relative to the directory it's set in. Wins over `CacherRules` if both are set. Cached in memory, keyed by file mtime/size - only re-read when the file actually changes. |
 | `CacherCacheRoot <path>` | server/vhost config only | Filesystem root for cached responses. Created automatically at startup (`post_config`) if missing. Required for `CacherEnable On` to actually cache anything. |
 

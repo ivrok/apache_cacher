@@ -89,10 +89,41 @@ static const char *cacher_set_enable(cmd_parms *cmd, void *dconf, int flag)
     return NULL;
 }
 
+/*
+ * AP_INIT_RAW_ARGS hands over the remainder of the directive line exactly
+ * as written - including any enclosing quotes, which Apache does NOT strip
+ * for raw-args directives. Since JSON is full of double quotes, the natural
+ * way to write this in .htaccess is:
+ *
+ *     CacherRules '{"rules":[...]}'
+ *
+ * so strip one matching pair of surrounding quotes before parsing. Done
+ * here rather than in the JSON parser: quoting is a config-syntax concern,
+ * and stripping by hand (rather than switching to AP_INIT_TAKE1) leaves the
+ * inner text completely untouched, with no backslash-escape processing to
+ * mangle JSON escapes.
+ */
 static const char *cacher_set_rules(cmd_parms *cmd, void *dconf, const char *args)
 {
     cacher_dir_conf *conf = dconf;
-    conf->rules_json = apr_pstrdup(cmd->pool, args);
+    const char *start = args;
+    apr_size_t len;
+
+    while (*start == ' ' || *start == '\t') {
+        start++;
+    }
+
+    len = strlen(start);
+    while (len > 0 && (start[len - 1] == ' ' || start[len - 1] == '\t')) {
+        len--;
+    }
+
+    if (len >= 2 && (*start == '\'' || *start == '"') && start[len - 1] == *start) {
+        start++;
+        len -= 2;
+    }
+
+    conf->rules_json = apr_pstrndup(cmd->pool, start, len);
     return NULL;
 }
 
