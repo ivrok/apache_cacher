@@ -8,6 +8,26 @@
 /* Name under which the write-path output filter is registered. */
 #define CACHER_OUTPUT_FILTER_NAME "CACHER_OUT"
 
+/* Metadata recorded in a .header file, as parsed by cacher_cache_read_meta. */
+typedef struct {
+    apr_int64_t expires;   /* unix seconds */
+    int status;
+    const char *method;
+    const char *host;
+    const char *url;       /* path, plus ?query when present */
+} cacher_entry_meta;
+
+/*
+ * Parses the plain-text metadata block of a .header file. Returns 0 on
+ * success, non-zero if the file is missing, unreadable, or written in a
+ * different on-disk format version.
+ *
+ * On success, *headers_out points at the response header block within the
+ * same pool-allocated buffer (pass NULL if the headers aren't wanted).
+ */
+int cacher_cache_read_meta(apr_pool_t *p, const char *header_path,
+                            cacher_entry_meta *meta, char **headers_out);
+
 /* Registers the CACHER_OUT output filter type. Call once, from register_hooks. */
 void cacher_cache_register_filter(apr_pool_t *p);
 

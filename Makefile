@@ -1,5 +1,7 @@
 APXS ?= apxs
-SRC   = src/mod_cacher.c src/cacher_config.c src/cacher_rules.c src/cacher_cache.c src/cacher_util.c third_party/cJSON.c
+SRC   = src/mod_cacher.c src/cacher_config.c src/cacher_rules.c \
+        src/cacher_cache.c src/cacher_util.c src/cacher_admin.c \
+        third_party/cJSON.c
 INC   = -Ithird_party
 
 MODULE = src/mod_cacher.la

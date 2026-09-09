@@ -308,6 +308,7 @@ semantics) before relying on this in production on Windows.
 | `CacherRules '<json>'` | `.htaccess`, `<Directory>` | Inline JSON rules (see schema below). Wrap the JSON in **single quotes** so its own double quotes survive. Re-parsed every request - fine for small rule sets, but `CacherRulesFile` is easier to read and avoids quoting entirely. |
 | `CacherRulesFile <path>` | `.htaccess`, `<Directory>` | Path to a JSON rules file, relative to the directory it's set in. Wins over `CacherRules` if both are set. Cached in memory, keyed by file mtime/size - only re-read when the file actually changes. |
 | `CacherCacheRoot <path>` | server/vhost config only | Filesystem root for cached responses. Created automatically at startup (`post_config`) if missing. Required for `CacherEnable On` to actually cache anything. |
+| `CacherAdminPath <path>` | server/vhost config only | URL path serving the list/purge/full-reset endpoints. **Disabled unless set, and unauthenticated - protect it with `Require`/auth.** Never permitted in `.htaccess`. |
 
 ## JSON rules schema
 
@@ -361,7 +362,62 @@ Once built and loaded, with `CacherEnable On` + a rule matching some path:
 7. `ab -c 20 -n 200 http://host/path` against a MISS URL - confirm no
    corrupted/partial cache files and no crash under concurrent regeneration.
 
-## Controlling the cache: the `cacher` tool
+## Controlling the cache over HTTP
+
+Set `CacherAdminPath` in the **server or vhost config** (never `.htaccess`)
+to expose three endpoints:
+
+```apache
+CacherAdminPath /cacher-admin
+```
+
+```
+GET  /cacher-admin/list              every cached entry: method, status, size, TTL, URL
+GET  /cacher-admin/purge/blog/*      purge entries whose URL matches the glob
+GET  /cacher-admin/purge/about/      purge one page
+GET  /cacher-admin/full-reset        purge everything
+```
+
+`/cacher-admin` on its own prints usage. Purge returns `404` when nothing
+matched, so a script can tell the difference.
+
+### These endpoints have no authentication - you must add it
+
+An open `full-reset` URL is a denial-of-service button: each call forces
+your whole site to regenerate from PHP. An open `list` publishes your URL
+inventory. The module deliberately implements no auth of its own - the
+read path runs *after* Apache's authentication and authorisation phases,
+so Apache's own machinery protects it properly:
+
+```apache
+CacherAdminPath /cacher-admin
+
+<Location /cacher-admin>
+    Require ip 203.0.113.4          # your office/VPN address
+    # or: Require local
+</Location>
+```
+
+Password instead of address:
+
+```apache
+<Location /cacher-admin>
+    AuthType Basic
+    AuthName "Cache admin"
+    AuthUserFile /etc/apache2/cacher.htpasswd
+    Require valid-user
+</Location>
+```
+
+Both purge and full-reset log to the error log at `notice` level with the
+client address, so the endpoints leave an audit trail either way.
+
+`CacherAdminPath` is server-config-only on purpose: were it allowed in
+`.htaccess`, anyone able to write a file into a document root - a
+compromised CMS, an uploads directory - could publish cache control on a
+public URL.
+
+## Controlling the cache from the shell: the `cacher` tool
 
 `make install` puts a `cacher` command in `/usr/local/bin` (override with
 `BINDIR=`). It reads the plain-text `.header` files directly, so it needs

@@ -77,6 +77,7 @@ void *cacher_merge_server_config(apr_pool_t *p, void *basev, void *newv)
     cacher_svr_conf *merged = apr_pcalloc(p, sizeof(*merged));
 
     merged->cache_root = add->cache_root ? add->cache_root : base->cache_root;
+    merged->admin_path = add->admin_path ? add->admin_path : base->admin_path;
     return merged;
 }
 
@@ -144,6 +145,19 @@ static const char *cacher_set_cache_root(cmd_parms *cmd, void *dconf, const char
     return NULL;
 }
 
+static const char *cacher_set_admin_path(cmd_parms *cmd, void *dconf, const char *arg)
+{
+    cacher_svr_conf *conf = ap_get_module_config(cmd->server->module_config,
+                                                  &cacher_module);
+
+    (void) dconf;
+    if (*arg != '/') {
+        return "CacherAdminPath must start with '/'";
+    }
+    conf->admin_path = apr_pstrdup(cmd->pool, arg);
+    return NULL;
+}
+
 const command_rec cacher_cmds[] = {
     AP_INIT_FLAG("CacherEnable", cacher_set_enable, NULL, OR_FILEINFO,
                  "Enable Cacher for this directory (On|Off, default Off)"),
@@ -153,6 +167,10 @@ const command_rec cacher_cmds[] = {
                   "Path to a JSON rules file, relative to this directory"),
     AP_INIT_TAKE1("CacherCacheRoot", cacher_set_cache_root, NULL, RSRC_CONF,
                   "Filesystem root for cached responses"),
+    AP_INIT_TAKE1("CacherAdminPath", cacher_set_admin_path, NULL, RSRC_CONF,
+                  "URL path serving the cache admin endpoints (list/purge/full-reset). "
+                  "Disabled unless set. Protect it with Require/auth - it is not "
+                  "authenticated by this module"),
     { NULL }
 };
 

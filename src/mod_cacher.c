@@ -7,11 +7,15 @@
  *   - cacher_rules.c:  JSON rule parsing and matching (Apache-independent)
  *   - cacher_cache.c:  disk cache read/write
  *   - cacher_util.c:   cookie header parsing
+ *   - cacher_admin.c:  list/purge/full-reset HTTP endpoints
  */
 
 #include "cacher_config.h"
+#include "cacher_admin.h"
 #include "cacher_cache.h"
 #include "cacher_util.h"
+
+#include <string.h>
 
 #include "http_log.h"
 #include "http_protocol.h"
@@ -49,6 +53,21 @@ static int cacher_handler(request_rec *r)
      * serve them in their own right. */
     if (r->main) {
         return DECLINED;
+    }
+
+    /* Admin endpoints are checked before anything else: they live at their
+     * own URL and must work regardless of whether that path sits inside a
+     * Cacher-enabled directory. Apache's auth phases have already run by
+     * this point, so a <Location> with Require/auth around the admin path
+     * gates them without this module implementing any auth of its own. */
+    sconf = ap_get_module_config(r->server->module_config, &cacher_module);
+    if (sconf && sconf->admin_path) {
+        apr_size_t admin_len = strlen(sconf->admin_path);
+
+        if (strncmp(r->uri, sconf->admin_path, admin_len) == 0
+            && (r->uri[admin_len] == '\0' || r->uri[admin_len] == '/')) {
+            return cacher_admin_handle(r, sconf->cache_root, r->uri + admin_len);
+        }
     }
 
     dconf = ap_get_module_config(r->per_dir_config, &cacher_module);
@@ -92,8 +111,6 @@ static int cacher_handler(request_rec *r)
                       "cacher: %s %s bypassed (matching cookie present)", r->method, orig->uri);
         return DECLINED;
     }
-
-    sconf = ap_get_module_config(r->server->module_config, &cacher_module);
 
     body = cacher_cache_lookup(r, sconf ? sconf->cache_root : NULL, rule, &status, &length);
     if (body) {

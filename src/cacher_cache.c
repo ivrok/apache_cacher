@@ -126,6 +126,78 @@ static int cache_key_paths(request_rec *r, const char *cache_root, const cacher_
     return 0;
 }
 
+int cacher_cache_read_meta(apr_pool_t *p, const char *header_path,
+                            cacher_entry_meta *meta, char **headers_out)
+{
+    apr_file_t *hf;
+    apr_finfo_t finfo;
+    char *text;
+    char *headers_at;
+    char *line;
+    char *last;
+
+    memset(meta, 0, sizeof(*meta));
+    meta->method = "-";
+    meta->host = "-";
+    meta->url = "-";
+
+    if (apr_file_open(&hf, header_path, APR_FOPEN_READ, APR_FPROT_OS_DEFAULT, p) != APR_SUCCESS) {
+        return -1;
+    }
+    if (apr_file_info_get(&finfo, APR_FINFO_SIZE, hf) != APR_SUCCESS || finfo.size <= 0) {
+        apr_file_close(hf);
+        return -1;
+    }
+
+    text = apr_palloc(p, (apr_size_t) finfo.size + 1);
+    if (apr_file_read_full(hf, text, (apr_size_t) finfo.size, NULL) != APR_SUCCESS) {
+        apr_file_close(hf);
+        return -1;
+    }
+    text[finfo.size] = '\0';
+    apr_file_close(hf);
+
+    if (strncmp(text, CACHER_HEADER_VERSION "\n", sizeof(CACHER_HEADER_VERSION)) != 0) {
+        return -1; /* different on-disk format - caller treats as absent */
+    }
+
+    headers_at = strstr(text, "\n\n");
+    if (!headers_at) {
+        return -1;
+    }
+    *headers_at = '\0';
+    headers_at += 2;
+
+    for (line = apr_strtok(text, "\n", &last); line; line = apr_strtok(NULL, "\n", &last)) {
+        if (strncmp(line, "expires ", 8) == 0) {
+            meta->expires = apr_atoi64(line + 8);
+        } else if (strncmp(line, "status ", 7) == 0) {
+            meta->status = (int) apr_atoi64(line + 7);
+        } else if (strncmp(line, "url ", 4) == 0) {
+            /* "url METHOD host path[?query]" */
+            char *field_last;
+            char *m = apr_strtok(line + 4, " ", &field_last);
+            char *h = m ? apr_strtok(NULL, " ", &field_last) : NULL;
+            char *u = h ? apr_strtok(NULL, "", &field_last) : NULL;
+
+            if (m && h && u) {
+                meta->method = m;
+                meta->host = h;
+                meta->url = u;
+            }
+        }
+    }
+
+    if (meta->status == 0) {
+        return -1;
+    }
+
+    if (headers_out) {
+        *headers_out = headers_at;
+    }
+    return 0;
+}
+
 void cacher_cache_register_filter(apr_pool_t *p)
 {
     (void) p;
@@ -352,13 +424,10 @@ apr_file_t *cacher_cache_lookup(request_rec *r, const char *cache_root,
 {
     char *header_path;
     char *body_path;
-    apr_file_t *hf;
     apr_file_t *bf;
     apr_finfo_t finfo;
-    char *text;
+    cacher_entry_meta meta;
     char *headers_at;
-    apr_int64_t expires = 0;
-    int status = 0;
     char *line;
     char *last;
 
@@ -370,47 +439,12 @@ apr_file_t *cacher_cache_lookup(request_rec *r, const char *cache_root,
         return NULL;
     }
 
-    if (apr_file_open(&hf, header_path, APR_FOPEN_READ, APR_FPROT_OS_DEFAULT, r->pool) != APR_SUCCESS) {
-        return NULL; /* MISS */
+    if (cacher_cache_read_meta(r->pool, header_path, &meta, &headers_at) != 0) {
+        return NULL; /* MISS: absent, unreadable, or an older format */
     }
 
-    if (apr_file_info_get(&finfo, APR_FINFO_SIZE, hf) != APR_SUCCESS || finfo.size <= 0) {
-        apr_file_close(hf);
-        return NULL;
-    }
-
-    text = apr_palloc(r->pool, (apr_size_t) finfo.size + 1);
-    if (apr_file_read_full(hf, text, (apr_size_t) finfo.size, NULL) != APR_SUCCESS) {
-        apr_file_close(hf);
-        return NULL;
-    }
-    text[finfo.size] = '\0';
-    apr_file_close(hf);
-
-    if (strncmp(text, CACHER_HEADER_VERSION "\n", sizeof(CACHER_HEADER_VERSION)) != 0) {
-        /* Written by a different version of the on-disk format - treat as
-         * a miss so it is simply regenerated. */
-        return NULL;
-    }
-
-    /* Metadata runs to the first blank line; the response headers follow. */
-    headers_at = strstr(text, "\n\n");
-    if (!headers_at) {
-        return NULL;
-    }
-    *headers_at = '\0';
-    headers_at += 2;
-
-    for (line = apr_strtok(text, "\n", &last); line; line = apr_strtok(NULL, "\n", &last)) {
-        if (strncmp(line, "expires ", 8) == 0) {
-            expires = apr_atoi64(line + 8);
-        } else if (strncmp(line, "status ", 7) == 0) {
-            status = (int) apr_atoi64(line + 7);
-        }
-    }
-
-    if (status == 0 || expires <= (apr_int64_t) apr_time_sec(apr_time_now())) {
-        return NULL; /* malformed, or expired -> MISS */
+    if (meta.expires <= (apr_int64_t) apr_time_sec(apr_time_now())) {
+        return NULL; /* expired -> MISS */
     }
 
     for (line = apr_strtok(headers_at, "\r\n", &last); line; line = apr_strtok(NULL, "\r\n", &last)) {
@@ -450,7 +484,7 @@ apr_file_t *cacher_cache_lookup(request_rec *r, const char *cache_root,
         return NULL;
     }
 
-    *out_status = status;
+    *out_status = meta.status;
     *out_length = finfo.size;
     return bf;
 }

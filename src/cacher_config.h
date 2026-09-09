@@ -18,9 +18,12 @@ typedef struct {
                                  resolving a relative rules_file. */
 } cacher_dir_conf;
 
-/* Per-server config; CacherCacheRoot is RSRC_CONF only, not .htaccess-overridable. */
+/* Per-server config. Both directives are RSRC_CONF only: allowing them in
+ * .htaccess would let anyone able to write into a document root redirect
+ * the cache or expose its admin endpoints. */
 typedef struct {
     const char *cache_root;
+    const char *admin_path;  /* CacherAdminPath, or NULL = endpoints disabled */
 } cacher_svr_conf;
 
 extern module AP_MODULE_DECLARE_DATA cacher_module;
