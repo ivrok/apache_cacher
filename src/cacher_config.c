@@ -39,6 +39,8 @@ void *cacher_create_dir_config(apr_pool_t *p, char *dir)
     conf->rules_json = NULL;
     conf->rules_file = NULL;
     conf->config_dir = dir ? apr_pstrdup(p, dir) : NULL;
+    conf->admin_path = NULL;
+    conf->admin_require_user = CACHER_UNSET;
     return conf;
 }
 
@@ -57,6 +59,9 @@ void *cacher_merge_dir_config(apr_pool_t *p, void *basev, void *newv)
      * processed - the correct base for resolving a relative rules_file
      * that was set at that level. */
     merged->config_dir = add->config_dir ? add->config_dir : base->config_dir;
+    merged->admin_path = add->admin_path ? add->admin_path : base->admin_path;
+    merged->admin_require_user = (add->admin_require_user != CACHER_UNSET)
+                                  ? add->admin_require_user : base->admin_require_user;
 
     return merged;
 }
@@ -67,8 +72,6 @@ void *cacher_create_server_config(apr_pool_t *p, server_rec *s)
 
     (void) s;
     conf->cache_root = NULL;
-    conf->admin_path = NULL;
-    conf->admin_require_user = CACHER_UNSET;
     return conf;
 }
 
@@ -79,9 +82,6 @@ void *cacher_merge_server_config(apr_pool_t *p, void *basev, void *newv)
     cacher_svr_conf *merged = apr_pcalloc(p, sizeof(*merged));
 
     merged->cache_root = add->cache_root ? add->cache_root : base->cache_root;
-    merged->admin_path = add->admin_path ? add->admin_path : base->admin_path;
-    merged->admin_require_user = (add->admin_require_user != CACHER_UNSET)
-                                  ? add->admin_require_user : base->admin_require_user;
     return merged;
 }
 
@@ -151,10 +151,9 @@ static const char *cacher_set_cache_root(cmd_parms *cmd, void *dconf, const char
 
 static const char *cacher_set_admin_path(cmd_parms *cmd, void *dconf, const char *arg)
 {
-    cacher_svr_conf *conf = ap_get_module_config(cmd->server->module_config,
-                                                  &cacher_module);
+    cacher_dir_conf *conf = dconf;
 
-    (void) dconf;
+    (void) cmd;
     if (*arg != '/') {
         return "CacherAdminPath must start with '/'";
     }
@@ -164,10 +163,9 @@ static const char *cacher_set_admin_path(cmd_parms *cmd, void *dconf, const char
 
 static const char *cacher_set_admin_require_user(cmd_parms *cmd, void *dconf, int flag)
 {
-    cacher_svr_conf *conf = ap_get_module_config(cmd->server->module_config,
-                                                  &cacher_module);
+    cacher_dir_conf *conf = dconf;
 
-    (void) dconf;
+    (void) cmd;
     conf->admin_require_user = flag ? 1 : 0;
     return NULL;
 }
@@ -181,11 +179,11 @@ const command_rec cacher_cmds[] = {
                   "Path to a JSON rules file, relative to this directory"),
     AP_INIT_TAKE1("CacherCacheRoot", cacher_set_cache_root, NULL, RSRC_CONF,
                   "Filesystem root for cached responses"),
-    AP_INIT_TAKE1("CacherAdminPath", cacher_set_admin_path, NULL, RSRC_CONF,
-                  "URL path serving the cache admin endpoints (list/purge/full-reset). "
-                  "Disabled unless set. Protect it with Require/auth - it is not "
-                  "authenticated by this module"),
-    AP_INIT_FLAG("CacherAdminRequireUser", cacher_set_admin_require_user, NULL, RSRC_CONF,
+    AP_INIT_TAKE1("CacherAdminPath", cacher_set_admin_path, NULL, OR_FILEINFO,
+                  "URL path serving the cache admin endpoints (list/purge/full-reset) "
+                  "for this site. Disabled unless set; only ever acts on entries "
+                  "belonging to the requesting host"),
+    AP_INIT_FLAG("CacherAdminRequireUser", cacher_set_admin_require_user, NULL, OR_FILEINFO,
                  "Require an authenticated user for the admin endpoints (default On). "
                  "Set Off only where an open cache reset is acceptable, e.g. staging"),
     { NULL }

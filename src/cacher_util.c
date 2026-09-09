@@ -15,16 +15,19 @@ request_rec *cacher_original_request(request_rec *r)
     return top;
 }
 
-int cacher_header_name_is(const char *name, const char *target)
+int cacher_streq_ci(const char *a, const char *b)
 {
-    while (*name && *target) {
-        if (tolower((unsigned char) *name) != tolower((unsigned char) *target)) {
+    if (!a || !b) {
+        return 0;
+    }
+    while (*a && *b) {
+        if (tolower((unsigned char) *a) != tolower((unsigned char) *b)) {
             return 0;
         }
-        name++;
-        target++;
+        a++;
+        b++;
     }
-    return *name == '\0' && *target == '\0';
+    return *a == '\0' && *b == '\0';
 }
 
 typedef void (*cookie_cb)(const char *name, const char *value, void *ctx);

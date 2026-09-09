@@ -57,15 +57,18 @@ static int cacher_handler(request_rec *r)
 
     /* Admin endpoints are checked before anything else: they live at their
      * own URL and must work regardless of whether that path sits inside a
-     * Cacher-enabled directory. Apache's auth phases have already run by
-     * this point, so a <Location> with Require/auth around the admin path
-     * gates them without this module implementing any auth of its own. */
+     * Cacher-enabled directory. CacherAdminPath is per-directory, so each
+     * site can enable them for itself - including from .htaccess - and
+     * cacher_admin.c scopes every operation to the requesting host so one
+     * site can never list or purge another's entries. */
     sconf = ap_get_module_config(r->server->module_config, &cacher_module);
-    if (sconf && sconf->admin_path) {
-        apr_size_t admin_len = strlen(sconf->admin_path);
+    dconf = ap_get_module_config(r->per_dir_config, &cacher_module);
+
+    if (dconf && dconf->admin_path) {
+        apr_size_t admin_len = strlen(dconf->admin_path);
         request_rec *top = cacher_original_request(r);
 
-        if (strncmp(r->uri, sconf->admin_path, admin_len) == 0
+        if (strncmp(r->uri, dconf->admin_path, admin_len) == 0
             && (r->uri[admin_len] == '\0' || r->uri[admin_len] == '/')) {
 
             /*
@@ -81,7 +84,7 @@ static int cacher_handler(request_rec *r)
              * still Apache's, this directive only records that the module was
              * told not to insist on a user.
              */
-            if (sconf->admin_require_user != 0 && !r->user) {
+            if (dconf->admin_require_user != 0 && !r->user) {
                 ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
                               "cacher: refusing admin request for %s - no authenticated "
                               "user. Guard the path with AuthType/Require valid-user, or "
@@ -91,7 +94,8 @@ static int cacher_handler(request_rec *r)
                 return HTTP_FORBIDDEN;
             }
 
-            return cacher_admin_handle(r, sconf->cache_root, r->uri + admin_len);
+            return cacher_admin_handle(r, sconf ? sconf->cache_root : NULL,
+                                        r->uri + admin_len);
         }
 
         /*
@@ -104,7 +108,7 @@ static int cacher_handler(request_rec *r)
          * control silently switched off. Refuse, and say how to fix it.
          */
         if (top != r
-            && strncmp(top->uri, sconf->admin_path, admin_len) == 0
+            && strncmp(top->uri, dconf->admin_path, admin_len) == 0
             && (top->uri[admin_len] == '\0' || top->uri[admin_len] == '/')) {
             ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
                           "cacher: '%s' was rewritten to '%s' before reaching the "
@@ -112,12 +116,11 @@ static int cacher_handler(request_rec *r)
                           "applies - refusing to serve the admin endpoint. Exempt "
                           "it from the front-controller rewrite, e.g. "
                           "'RewriteRule ^%s - [END]' above the application's rules.",
-                          top->uri, r->uri, sconf->admin_path, sconf->admin_path + 1);
+                          top->uri, r->uri, dconf->admin_path, dconf->admin_path + 1);
             return DECLINED;
         }
     }
 
-    dconf = ap_get_module_config(r->per_dir_config, &cacher_module);
     if (!dconf || dconf->enabled != 1) {
         /* Deliberately silent: this hook runs for every request on the
          * server, and the overwhelming majority are not Cacher-enabled. */

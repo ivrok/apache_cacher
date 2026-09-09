@@ -11,6 +11,7 @@
 #include "cacher_cache.h"
 #include "cacher_config.h"
 #include "cacher_rules.h"
+#include "cacher_util.h"
 
 APLOG_USE_MODULE(cacher);
 
@@ -55,6 +56,13 @@ static void visit_entry(admin_ctx *ctx, const char *header_path)
     apr_int64_t left;
 
     if (cacher_cache_read_meta(r->pool, header_path, &meta, NULL) != 0) {
+        return;
+    }
+
+    /* Never touch another site's entries: the cache root is shared by every
+     * vhost, and this endpoint may have been enabled from a single site's
+     * .htaccess. */
+    if (!cacher_streq_ci(meta.host, r->hostname ? r->hostname : "")) {
         return;
     }
 
@@ -155,7 +163,8 @@ int cacher_admin_handle(request_rec *r, const char *cache_root, const char *acti
         ctx.delete_matches = 1;
         walk_cache(&ctx, cache_root);
         ap_log_rerror(APLOG_MARK, APLOG_NOTICE, 0, r,
-                      "cacher: full-reset via admin endpoint removed %d entries", ctx.matched);
+                      "cacher: full-reset via admin endpoint removed %d entries for %s",
+                      ctx.matched, r->hostname ? r->hostname : "-");
         ap_set_content_type(r, "text/plain; charset=utf-8");
         ap_rprintf(r, "full-reset: removed %d entr%s\n",
                    ctx.matched, ctx.matched == 1 ? "y" : "ies");
@@ -176,8 +185,8 @@ int cacher_admin_handle(request_rec *r, const char *cache_root, const char *acti
         walk_cache(&ctx, cache_root);
 
         ap_log_rerror(APLOG_MARK, APLOG_NOTICE, 0, r,
-                      "cacher: purge '%s' via admin endpoint removed %d entries",
-                      pattern, ctx.matched);
+                      "cacher: purge '%s' via admin endpoint removed %d entries for %s",
+                      pattern, ctx.matched, r->hostname ? r->hostname : "-");
 
         ap_set_content_type(r, "text/plain; charset=utf-8");
         ap_rprintf(r, "purge %s: removed %d entr%s\n",

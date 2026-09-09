@@ -308,8 +308,8 @@ semantics) before relying on this in production on Windows.
 | `CacherRules '<json>'` | `.htaccess`, `<Directory>` | Inline JSON rules (see schema below). Wrap the JSON in **single quotes** so its own double quotes survive. Re-parsed every request - fine for small rule sets, but `CacherRulesFile` is easier to read and avoids quoting entirely. |
 | `CacherRulesFile <path>` | `.htaccess`, `<Directory>` | Path to a JSON rules file, relative to the directory it's set in. Wins over `CacherRules` if both are set. Cached in memory, keyed by file mtime/size - only re-read when the file actually changes. |
 | `CacherCacheRoot <path>` | server/vhost config only | Filesystem root for cached responses. Created automatically at startup (`post_config`) if missing. Required for `CacherEnable On` to actually cache anything. |
-| `CacherAdminPath <path>` | server/vhost config only | URL path serving the list/purge/full-reset endpoints. **Unset (default) = console-only, nothing exposed.** Never permitted in `.htaccess`. |
-| `CacherAdminRequireUser On\|Off` | server/vhost config only | Require an Apache-authenticated user for those endpoints. **Default On.** Set `Off` only where an open cache reset is acceptable, such as staging. |
+| `CacherAdminPath <path>` | `.htaccess`, `<Directory>`, vhost | URL path serving this site's list/purge/full-reset endpoints. **Unset (default) = console-only, nothing exposed.** Only ever acts on entries for the requesting host. |
+| `CacherAdminRequireUser On\|Off` | `.htaccess`, `<Directory>`, vhost | Require an Apache-authenticated user for those endpoints. **Default On.** Set `Off` only where an open cache reset is acceptable, such as staging. |
 
 ## JSON rules schema
 
@@ -411,6 +411,21 @@ the endpoint when it sees the request arrived by rewrite, and logs a
 warning naming this fix - rather than quietly running cache administration
 with its access control no longer in effect.
 
+### Per-site, and scoped to that site
+
+`CacherAdminPath` is a **per-directory** directive, so each site on a shared
+server enables web administration for itself - from its vhost, a
+`<Directory>` block, or its own `.htaccess`.
+
+That is only safe because **the HTTP endpoints only ever act on entries
+belonging to the requesting host**. `CacherCacheRoot` is shared by every
+vhost, so an unscoped endpoint enabled by one site could enumerate and wipe
+every other site's cached pages. `list` shows only this host's entries;
+`purge` and `full-reset` only delete this host's.
+
+For server-wide administration use the `cacher` CLI on the box, which spans
+all hosts by default and takes `--host` to narrow.
+
 ### Web administration is opt-in, twice
 
 Nothing is exposed by default: with no `CacherAdminPath`, the only control
@@ -479,7 +494,8 @@ public URL.
 no Apache and no Python packages.
 
 ```bash
-cacher list                 # every cached entry: method, status, size, TTL left, URL
+cacher list                 # every cached entry, across all vhosts
+cacher list --host a.example  # narrow to one vhost
 cacher purge '/blog/*'      # delete entries whose URL matches a glob
 cacher purge '/about/' -n   # dry run - show what would go, delete nothing
 cacher full-reset           # delete everything, including orphans and empty shards

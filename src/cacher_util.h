@@ -19,9 +19,9 @@ int cacher_request_bypasses(request_rec *r, const cacher_rule *rule);
  */
 const char *cacher_get_cookie(request_rec *r, const char *name);
 
-/* Case-insensitive exact match, for comparing HTTP header field names
- * (whose case Apache does not normalize). */
-int cacher_header_name_is(const char *name, const char *target);
+/* Case-insensitive exact match. Used for HTTP header field names (whose
+ * case Apache does not normalise) and for hostnames. */
+int cacher_streq_ci(const char *a, const char *b);
 
 /*
  * Returns the outermost request in an internal-redirect chain - the one

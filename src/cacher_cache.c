@@ -240,11 +240,11 @@ int cacher_cache_ensure_root(apr_pool_t *p, server_rec *base_s)
  */
 static int is_uncacheable_header(const char *name)
 {
-    return cacher_header_name_is(name, "Connection")
-        || cacher_header_name_is(name, "Keep-Alive")
-        || cacher_header_name_is(name, "Transfer-Encoding")
-        || cacher_header_name_is(name, "Content-Length")
-        || cacher_header_name_is(name, "Set-Cookie");
+    return cacher_streq_ci(name, "Connection")
+        || cacher_streq_ci(name, "Keep-Alive")
+        || cacher_streq_ci(name, "Transfer-Encoding")
+        || cacher_streq_ci(name, "Content-Length")
+        || cacher_streq_ci(name, "Set-Cookie");
 }
 
 typedef struct {
@@ -461,7 +461,7 @@ apr_file_t *cacher_cache_lookup(request_rec *r, const char *cache_root,
         while (*value == ' ') {
             value++;
         }
-        if (cacher_header_name_is(name, "Content-Type")) {
+        if (cacher_streq_ci(name, "Content-Type")) {
             /* Apache generates the Content-Type response header from
              * r->content_type, not from headers_out - setting only the
              * table entry here would yield a wrong or missing type on

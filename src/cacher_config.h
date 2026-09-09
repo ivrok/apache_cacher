@@ -12,19 +12,21 @@
 /* Per-directory config, built up via .htaccess (or <Directory>/<Location>). */
 typedef struct {
     int enabled;             /* CACHER_UNSET / 0 (off) / 1 (on) */
+    const char *admin_path;   /* CacherAdminPath, or NULL = console-only */
+    int admin_require_user;   /* CACHER_UNSET / 0 / 1; unset behaves as 1 */
     const char *rules_json;  /* CacherRules inline value, or NULL */
     const char *rules_file;  /* CacherRulesFile value, or NULL; wins over rules_json */
     const char *config_dir;  /* Directory this config level was created for; base for
                                  resolving a relative rules_file. */
 } cacher_dir_conf;
 
-/* Per-server config. Both directives are RSRC_CONF only: allowing them in
- * .htaccess would let anyone able to write into a document root redirect
- * the cache or expose its admin endpoints. */
+/* Per-server config. CacherCacheRoot stays RSRC_CONF: it names a directory
+ * the server writes to, so it must not be redirectable from a document
+ * root. The admin directives are per-directory (see cacher_dir_conf) so
+ * each site can decide for itself; that is safe because web administration
+ * only ever acts on entries belonging to the requesting host. */
 typedef struct {
     const char *cache_root;
-    const char *admin_path;   /* CacherAdminPath, or NULL = console-only */
-    int admin_require_user;   /* CACHER_UNSET / 0 / 1; unset behaves as 1 */
 } cacher_svr_conf;
 
 extern module AP_MODULE_DECLARE_DATA cacher_module;

@@ -105,6 +105,13 @@ def iter_entries(root):
                 yield entry
 
 
+def iter_selected(args):
+    for entry in iter_entries(args.root):
+        if args.host and entry.host.lower() != args.host.lower():
+            continue
+        yield entry
+
+
 def human_size(n):
     for unit in ("B", "K", "M", "G"):
         if n < 1024 or unit == "G":
@@ -113,7 +120,7 @@ def human_size(n):
 
 
 def cmd_list(args):
-    entries = sorted(iter_entries(args.root), key=lambda e: (e.host, e.url))
+    entries = sorted(iter_selected(args), key=lambda e: (e.host, e.url))
     if not entries:
         print("cache is empty")
         return 1
@@ -139,7 +146,7 @@ def cmd_purge(args):
     # forcing the user to think about the host prefix.
     matched = 0
 
-    for entry in iter_entries(args.root):
+    for entry in iter_selected(args):
         target = entry.url
         if fnmatch.fnmatch(target, pattern) or fnmatch.fnmatch(entry.host + target, pattern):
             if args.dry_run:
@@ -160,9 +167,17 @@ def cmd_purge(args):
 
 def cmd_full_reset(args):
     removed = 0
-    for entry in iter_entries(args.root):
+    for entry in iter_selected(args):
         if entry.delete():
             removed += 1
+
+    if args.host:
+        # Host-scoped: the orphan sweep below cannot run, because an orphaned
+        # .body has no header left to say which host it belonged to and
+        # deleting it could take out another site's entry.
+        print("removed %d entr%s for %s"
+              % (removed, "y" if removed == 1 else "ies", args.host))
+        return 0
 
     # Sweep up empty shard directories and any orphaned .body files left by
     # an interrupted write.
@@ -179,7 +194,8 @@ def cmd_full_reset(args):
             except OSError:
                 pass
 
-    print("removed %d entries from %s" % (removed, args.root))
+    print("removed %d entr%s from %s"
+          % (removed, "y" if removed == 1 else "ies", args.root))
     return 0
 
 
@@ -188,6 +204,9 @@ def main():
         prog="cacher", description="Inspect and purge a mod_cacher disk cache.")
     parser.add_argument("--root", default=os.environ.get("CACHER_ROOT", DEFAULT_ROOT),
                         help="cache root (default: %s, or $CACHER_ROOT)" % DEFAULT_ROOT)
+    parser.add_argument("--host", default=None,
+                        help="only entries for this vhost (default: every host - "
+                             "the CLI is server-wide, unlike the HTTP endpoints)")
     sub = parser.add_subparsers(dest="command")
 
     sub.add_parser("list", help="show every cached entry")
