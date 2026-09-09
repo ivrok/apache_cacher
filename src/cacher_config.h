@@ -23,7 +23,8 @@ typedef struct {
  * the cache or expose its admin endpoints. */
 typedef struct {
     const char *cache_root;
-    const char *admin_path;  /* CacherAdminPath, or NULL = endpoints disabled */
+    const char *admin_path;   /* CacherAdminPath, or NULL = console-only */
+    int admin_require_user;   /* CACHER_UNSET / 0 / 1; unset behaves as 1 */
 } cacher_svr_conf;
 
 extern module AP_MODULE_DECLARE_DATA cacher_module;

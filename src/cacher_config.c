@@ -67,6 +67,8 @@ void *cacher_create_server_config(apr_pool_t *p, server_rec *s)
 
     (void) s;
     conf->cache_root = NULL;
+    conf->admin_path = NULL;
+    conf->admin_require_user = CACHER_UNSET;
     return conf;
 }
 
@@ -78,6 +80,8 @@ void *cacher_merge_server_config(apr_pool_t *p, void *basev, void *newv)
 
     merged->cache_root = add->cache_root ? add->cache_root : base->cache_root;
     merged->admin_path = add->admin_path ? add->admin_path : base->admin_path;
+    merged->admin_require_user = (add->admin_require_user != CACHER_UNSET)
+                                  ? add->admin_require_user : base->admin_require_user;
     return merged;
 }
 
@@ -158,6 +162,16 @@ static const char *cacher_set_admin_path(cmd_parms *cmd, void *dconf, const char
     return NULL;
 }
 
+static const char *cacher_set_admin_require_user(cmd_parms *cmd, void *dconf, int flag)
+{
+    cacher_svr_conf *conf = ap_get_module_config(cmd->server->module_config,
+                                                  &cacher_module);
+
+    (void) dconf;
+    conf->admin_require_user = flag ? 1 : 0;
+    return NULL;
+}
+
 const command_rec cacher_cmds[] = {
     AP_INIT_FLAG("CacherEnable", cacher_set_enable, NULL, OR_FILEINFO,
                  "Enable Cacher for this directory (On|Off, default Off)"),
@@ -171,6 +185,9 @@ const command_rec cacher_cmds[] = {
                   "URL path serving the cache admin endpoints (list/purge/full-reset). "
                   "Disabled unless set. Protect it with Require/auth - it is not "
                   "authenticated by this module"),
+    AP_INIT_FLAG("CacherAdminRequireUser", cacher_set_admin_require_user, NULL, RSRC_CONF,
+                 "Require an authenticated user for the admin endpoints (default On). "
+                 "Set Off only where an open cache reset is acceptable, e.g. staging"),
     { NULL }
 };
 

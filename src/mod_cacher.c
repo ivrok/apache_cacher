@@ -67,6 +67,30 @@ static int cacher_handler(request_rec *r)
 
         if (strncmp(r->uri, sconf->admin_path, admin_len) == 0
             && (r->uri[admin_len] == '\0' || r->uri[admin_len] == '/')) {
+
+            /*
+             * Web administration is off by default (no CacherAdminPath), and
+             * turning it on should not silently mean "open to the internet".
+             * r->user is set only when Apache actually authenticated somebody,
+             * so requiring it here makes an unauthenticated admin endpoint a
+             * deliberate, written-down decision rather than an oversight.
+             *
+             * Note this asks specifically for an authenticated *user*: an
+             * IP-allowlisted setup (Require ip) leaves r->user NULL, so those
+             * deployments also set CacherAdminRequireUser Off - the gate is
+             * still Apache's, this directive only records that the module was
+             * told not to insist on a user.
+             */
+            if (sconf->admin_require_user != 0 && !r->user) {
+                ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
+                              "cacher: refusing admin request for %s - no authenticated "
+                              "user. Guard the path with AuthType/Require valid-user, or "
+                              "set 'CacherAdminRequireUser Off' to allow unauthenticated "
+                              "access (appropriate only where anyone resetting the cache "
+                              "is acceptable, e.g. staging).", r->uri);
+                return HTTP_FORBIDDEN;
+            }
+
             return cacher_admin_handle(r, sconf->cache_root, r->uri + admin_len);
         }
 

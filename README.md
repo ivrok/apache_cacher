@@ -308,7 +308,8 @@ semantics) before relying on this in production on Windows.
 | `CacherRules '<json>'` | `.htaccess`, `<Directory>` | Inline JSON rules (see schema below). Wrap the JSON in **single quotes** so its own double quotes survive. Re-parsed every request - fine for small rule sets, but `CacherRulesFile` is easier to read and avoids quoting entirely. |
 | `CacherRulesFile <path>` | `.htaccess`, `<Directory>` | Path to a JSON rules file, relative to the directory it's set in. Wins over `CacherRules` if both are set. Cached in memory, keyed by file mtime/size - only re-read when the file actually changes. |
 | `CacherCacheRoot <path>` | server/vhost config only | Filesystem root for cached responses. Created automatically at startup (`post_config`) if missing. Required for `CacherEnable On` to actually cache anything. |
-| `CacherAdminPath <path>` | server/vhost config only | URL path serving the list/purge/full-reset endpoints. **Disabled unless set, and unauthenticated - protect it with `Require`/auth.** Never permitted in `.htaccess`. |
+| `CacherAdminPath <path>` | server/vhost config only | URL path serving the list/purge/full-reset endpoints. **Unset (default) = console-only, nothing exposed.** Never permitted in `.htaccess`. |
+| `CacherAdminRequireUser On\|Off` | server/vhost config only | Require an Apache-authenticated user for those endpoints. **Default On.** Set `Off` only where an open cache reset is acceptable, such as staging. |
 
 ## JSON rules schema
 
@@ -410,7 +411,32 @@ the endpoint when it sees the request arrived by rewrite, and logs a
 warning naming this fix - rather than quietly running cache administration
 with its access control no longer in effect.
 
-### These endpoints have no authentication - you must add it
+### Web administration is opt-in, twice
+
+Nothing is exposed by default: with no `CacherAdminPath`, the only control
+surface is the `cacher` CLI on the box.
+
+Setting a path is the first opt-in. The second is `CacherAdminRequireUser`,
+which defaults to **On**: the module refuses any admin request Apache did
+not authenticate a user for, so turning the endpoints on does not silently
+mean "open to the internet". A refusal is logged at `warn` naming the fix.
+
+```apache
+CacherAdminPath /cacher-admin        # console-only until this is set
+CacherAdminRequireUser Off           # ...and open only when you say so
+```
+
+Ready-made configs: [`examples/cacher-staging.conf`](examples/cacher-staging.conf)
+(open, no credentials) and
+[`examples/cacher-production.conf`](examples/cacher-production.conf)
+(behind Basic auth).
+
+Note `Require ip` allowlists leave `r->user` unset, so those deployments
+also need `CacherAdminRequireUser Off` - Apache still enforces the
+allowlist, the directive only records that the module was told not to
+insist on a named user.
+
+### With RequireUser Off, nothing else guards these endpoints
 
 An open `full-reset` URL is a denial-of-service button: each call forces
 your whole site to regenerate from PHP. An open `list` publishes your URL
