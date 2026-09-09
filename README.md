@@ -22,22 +22,36 @@ the write path can only be correct once cookie-bypass is in place (an
 authenticated request must never be captured into the shared cache), so
 splitting them would have meant a real, if temporary, security gap.
 
-**None of this has been compiled or run yet** - see "Status" note in the
-project history: no C toolchain was available in the environment this was
-written in. Treat it as a careful-first-draft, not as verified working
-code, until it's built and exercised with the curl matrix below.
+### Verified so far
+
+- Compiles clean (`-Wall -Wextra`) on Ubuntu 24.04 against Apache 2.4.x
+- Unit tests pass (`make test`)
+- Loads into a live Apache and survives a restart
+- Directives parse; `apachectl configtest` returns `Syntax OK`
+- Inert when no directory sets `CacherEnable On` - existing sites unaffected
+
+### Not yet verified
+
+- **An end-to-end cache hit.** The first live test showed no caching at
+  all, traced to the read path running in a `quick_handler` where
+  `.htaccess` config does not yet exist. That is now fixed (it runs as a
+  content handler), but the fix itself has not been exercised against a
+  live request.
+- Cookie bypass, TTL expiry, `vary` partitioning, concurrent regeneration.
 
 ## Build (Linux, primary target)
 
 Requires the Apache dev headers (`apache2-dev` / `httpd-devel`) for `apxs`.
 
 ```sh
-make            # compile only
-make install    # apxs -i -a: installs the module and adds LoadModule
-make test       # builds and runs the standalone rule-parser unit tests
+make            # compile only - touches nothing outside this directory
+make install    # apxs -i: copies the .so into Apache's modules dir only
+make enable     # apxs -i -a: also adds LoadModule (edits Apache config)
+make test       # standalone rule-parser unit tests, no Apache needed
+make warn       # rebuild with -Wall -Wextra, showing only our own code
 ```
 
-Verify the module loaded: `httpd -M | grep cacher`.
+Verify the module loaded: `apachectl -M | grep cacher`.
 
 ## Deploying to a staging server
 
