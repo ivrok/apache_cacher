@@ -58,10 +58,18 @@ static int cacher_handler(request_rec *r)
         return DECLINED;
     }
 
-    rule = cacher_ruleset_match(rs, r->parsed_uri.path ? r->parsed_uri.path : r->uri, r->method);
+    rule = cacher_ruleset_match(rs, r->parsed_uri.path ? r->parsed_uri.path : r->uri,
+                                 r->args, r->method);
     if (!rule) {
         ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
                       "cacher: %s %s matched no rule", r->method, r->uri);
+        return DECLINED;
+    }
+
+    if (!rule->enabled) {
+        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                      "cacher: %s %s matched an exclusion rule - not cacheable",
+                      r->method, r->uri);
         return DECLINED;
     }
 

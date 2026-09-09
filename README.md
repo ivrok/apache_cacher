@@ -299,7 +299,11 @@ semantics) before relying on this in production on Windows.
 
 ## JSON rules schema
 
-See [`examples/cacher-rules.example.json`](examples/cacher-rules.example.json).
+See [`examples/cacher-rules.example.json`](examples/cacher-rules.example.json)
+for the minimal shape, and
+[`examples/wordpress-woocommerce-rules.json`](examples/wordpress-woocommerce-rules.json)
+for a production-shaped WordPress + WooCommerce config that excludes auth,
+shop and AJAX paths and caches everything else.
 
 ```json
 {
@@ -317,7 +321,9 @@ See [`examples/cacher-rules.example.json`](examples/cacher-rules.example.json).
 ```
 
 - `rules` is ordered; the **first matching rule wins**. No match ⇒ do not cache.
-- `match.path` - glob pattern (`*`/`?`), matched against the request path. Omit to match any path.
+- `enabled: false` makes a rule an **exclusion**: if it matches first, the request is not cached and later rules are *not* consulted. Put exclusions above your catch-all.
+- `match.path` - glob pattern (`*`/`?`), matched against the request path (no query string). Omit to match any path.
+- `match.query` - glob matched against the query string alone. Needed for things that live only in the query, e.g. `"*wc-ajax=*"`. Omit to match any query.
 - `match.methods` - array of HTTP methods. Omit to match any method.
 - `bypass_cookies` - glob patterns matched against cookie **names** (never values) present on the request. Any match skips the cache entirely for that request - this is how an authenticated session avoids being served/stored as a cached page.
 - `status_codes` - response statuses eligible for caching. Defaults to `[200]`.

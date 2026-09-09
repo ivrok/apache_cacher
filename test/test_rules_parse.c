@@ -54,7 +54,7 @@ static void test_parse_basic(void)
         return;
     }
 
-    matched = cacher_ruleset_match(rs, "/blog/my-post", "GET");
+    matched = cacher_ruleset_match(rs, "/blog/my-post", NULL, "GET");
     CHECK(matched != NULL, "match: GET /blog/my-post matches the blog rule");
     if (matched) {
         CHECK(matched->ttl_seconds == 300, "match: ttl parsed correctly");
@@ -65,8 +65,8 @@ static void test_parse_basic(void)
         CHECK(!cacher_rule_bypasses_cookie(matched, "cart_id"), "match: unrelated cookie does not bypass");
     }
 
-    CHECK(cacher_ruleset_match(rs, "/shop/item", "GET") == NULL, "match: /shop/item does not match /blog/* rule");
-    CHECK(cacher_ruleset_match(rs, "/blog/my-post", "POST") == NULL, "match: POST excluded by methods list");
+    CHECK(cacher_ruleset_match(rs, "/shop/item", NULL, "GET") == NULL, "match: /shop/item does not match /blog/* rule");
+    CHECK(cacher_ruleset_match(rs, "/blog/my-post", NULL, "POST") == NULL, "match: POST excluded by methods list");
 
     cacher_ruleset_free(rs);
 }
@@ -86,7 +86,7 @@ static void test_parse_defaults(void)
         return;
     }
 
-    matched = cacher_ruleset_match(rs, "/any/path/at/all", "DELETE");
+    matched = cacher_ruleset_match(rs, "/any/path/at/all", NULL, "DELETE");
     CHECK(matched != NULL, "defaults: rule with no match clause matches everything");
     if (matched) {
         CHECK(cacher_rule_allows_status(matched, 200), "defaults: status_codes defaults to {200}");
@@ -96,27 +96,70 @@ static void test_parse_defaults(void)
     cacher_ruleset_free(rs);
 }
 
-static void test_parse_disabled_rule_is_skipped(void)
+/*
+ * The exclusion-list-then-catch-all pattern. A disabled rule must WIN when
+ * it matches, not be passed over in favour of a later catch-all - getting
+ * this backwards silently caches precisely what the exclusion was written
+ * to protect.
+ */
+static void test_disabled_rule_excludes_rather_than_falls_through(void)
 {
     const char *json =
         "{\"rules\":["
-        "  {\"match\":{\"path\":\"/admin/*\"},\"enabled\":false,\"ttl\":60},"
+        "  {\"match\":{\"path\":\"/admin/*\"},\"enabled\":false},"
         "  {\"ttl\":10}"
         "]}";
     char errbuf[128];
     cacher_ruleset *rs = cacher_ruleset_parse(json, errbuf, sizeof(errbuf));
     const cacher_rule *matched;
 
-    CHECK(rs != NULL, "disabled: ruleset parses");
+    CHECK(rs != NULL, "exclusion: ruleset parses");
     if (!rs) {
         return;
     }
 
-    matched = cacher_ruleset_match(rs, "/admin/dashboard", "GET");
-    CHECK(matched != NULL, "disabled: falls through to the catch-all rule");
+    matched = cacher_ruleset_match(rs, "/admin/dashboard", NULL, "GET");
+    CHECK(matched != NULL, "exclusion: /admin/* matches its own rule");
     if (matched) {
-        CHECK(matched->ttl_seconds == 10, "disabled: catch-all rule (ttl=10) is the one that matched, not the disabled /admin/* rule");
+        CHECK(matched->enabled == 0, "exclusion: the disabled rule wins, NOT the catch-all");
     }
+
+    matched = cacher_ruleset_match(rs, "/blog/post", NULL, "GET");
+    CHECK(matched != NULL, "exclusion: an unrelated path still reaches the catch-all");
+    if (matched) {
+        CHECK(matched->enabled == 1, "exclusion: catch-all is enabled");
+        CHECK(matched->ttl_seconds == 10, "exclusion: catch-all ttl applies");
+    }
+
+    cacher_ruleset_free(rs);
+}
+
+/* WooCommerce AJAX lives entirely in the query string (/?wc-ajax=...), so
+ * excluding it requires query matching - the path alone is just "/". */
+static void test_query_matching(void)
+{
+    const char *json =
+        "{\"rules\":["
+        "  {\"match\":{\"query\":\"*wc-ajax=*\"},\"enabled\":false},"
+        "  {\"ttl\":60}"
+        "]}";
+    char errbuf[128];
+    cacher_ruleset *rs = cacher_ruleset_parse(json, errbuf, sizeof(errbuf));
+    const cacher_rule *matched;
+
+    CHECK(rs != NULL, "query: ruleset parses");
+    if (!rs) {
+        return;
+    }
+
+    matched = cacher_ruleset_match(rs, "/", "wc-ajax=get_refreshed_fragments", "GET");
+    CHECK(matched && matched->enabled == 0, "query: wc-ajax request hits the exclusion");
+
+    matched = cacher_ruleset_match(rs, "/", NULL, "GET");
+    CHECK(matched && matched->enabled == 1, "query: same path with no query is cacheable");
+
+    matched = cacher_ruleset_match(rs, "/", "utm_source=news", "GET");
+    CHECK(matched && matched->enabled == 1, "query: unrelated query string is cacheable");
 
     cacher_ruleset_free(rs);
 }
@@ -135,7 +178,8 @@ int main(void)
     test_glob_match();
     test_parse_basic();
     test_parse_defaults();
-    test_parse_disabled_rule_is_skipped();
+    test_disabled_rule_excludes_rather_than_falls_through();
+    test_query_matching();
     test_parse_errors();
 
     if (failures == 0) {

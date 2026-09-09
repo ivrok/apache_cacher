@@ -1,0 +1,72 @@
+{
+  "_comment": [
+    "WordPress + WooCommerce: exclude auth, shop and AJAX paths, cache the rest.",
+    "Rules are ordered and the FIRST match wins, including exclusions -",
+    "so every 'enabled: false' rule must come before the catch-all at the end.",
+    "Cookie names below are matched against cookie NAMES only, never values."
+  ],
+
+  "rules": [
+    {
+      "_comment": "WP AJAX and cron. admin-ajax.php is used by logged-out visitors too, so it must be excluded by path, not left to the cookie bypass.",
+      "match": { "path": "/wp-admin/admin-ajax.php" },
+      "enabled": false
+    },
+    {
+      "_comment": "WooCommerce AJAX lives in the query string on any path (/?wc-ajax=get_refreshed_fragments), so it needs a query match.",
+      "match": { "query": "*wc-ajax=*" },
+      "enabled": false
+    },
+    {
+      "_comment": "WP admin, login, cron, XML-RPC and the REST API.",
+      "match": { "path": "/wp-admin/*" },
+      "enabled": false
+    },
+    { "match": { "path": "/wp-login.php" }, "enabled": false },
+    { "match": { "path": "/wp-cron.php" }, "enabled": false },
+    { "match": { "path": "/xmlrpc.php" }, "enabled": false },
+    { "match": { "path": "/wp-json/*" }, "enabled": false },
+
+    {
+      "_comment": "WooCommerce endpoints. Adjust these slugs if the shop uses translated or renamed pages.",
+      "match": { "path": "/cart*" },
+      "enabled": false
+    },
+    { "match": { "path": "/checkout*" }, "enabled": false },
+    { "match": { "path": "/my-account*" }, "enabled": false },
+    { "match": { "path": "/order-received*" }, "enabled": false },
+    { "match": { "path": "/wc-api/*" }, "enabled": false },
+    { "match": { "path": "/addons*" }, "enabled": false },
+
+    {
+      "_comment": "Preview and customiser links carry per-user nonces.",
+      "match": { "query": "*preview=true*" },
+      "enabled": false
+    },
+    { "match": { "query": "*customize_changeset_uuid=*" }, "enabled": false },
+    { "match": { "query": "*add-to-cart=*" }, "enabled": false },
+    { "match": { "query": "*remove_item=*" }, "enabled": false },
+    { "match": { "query": "*unregistered_user=*" }, "enabled": false },
+
+    {
+      "_comment": "Everything else: cache GET/HEAD 200s for 5 minutes, but never for a visitor whose cookies say they are logged in, mid-checkout, or otherwise personalised.",
+      "match": { "methods": ["GET", "HEAD"] },
+      "enabled": true,
+      "ttl": 300,
+      "status_codes": [200],
+      "bypass_cookies": [
+        "wordpress_logged_in_*",
+        "wordpress_sec_*",
+        "wp-postpass_*",
+        "wp-resetpass-*",
+        "comment_author_*",
+        "comment_author_email_*",
+        "wp_woocommerce_session_*",
+        "woocommerce_items_in_cart",
+        "woocommerce_cart_hash",
+        "woocommerce_recently_viewed"
+      ],
+      "vary": ["Accept-Encoding"]
+    }
+  ]
+}

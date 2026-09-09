@@ -187,6 +187,7 @@ static void free_rule(cacher_rule *r)
         return;
     }
     free(r->path);
+    free(r->query);
     free_string_array(r->methods);
     free(r->status_codes);
     free_string_array(r->bypass_cookies);
@@ -213,10 +214,14 @@ static cacher_rule *parse_rule(const cJSON *robj)
     match = cJSON_GetObjectItemCaseSensitive(robj, "match");
     if (cJSON_IsObject(match)) {
         const cJSON *path = cJSON_GetObjectItemCaseSensitive(match, "path");
+        const cJSON *query = cJSON_GetObjectItemCaseSensitive(match, "query");
         const cJSON *methods = cJSON_GetObjectItemCaseSensitive(match, "methods");
 
         if (cJSON_IsString(path) && path->valuestring) {
             r->path = cacher_strdup(path->valuestring);
+        }
+        if (cJSON_IsString(query) && query->valuestring) {
+            r->query = cacher_strdup(query->valuestring);
         }
         r->methods = json_string_array(methods, 1);
     }
@@ -331,7 +336,8 @@ void cacher_ruleset_free(cacher_ruleset *rs)
     free(rs);
 }
 
-const cacher_rule *cacher_ruleset_match(const cacher_ruleset *rs, const char *path, const char *method)
+const cacher_rule *cacher_ruleset_match(const cacher_ruleset *rs, const char *path,
+                                         const char *query, const char *method)
 {
     int i;
 
@@ -342,11 +348,17 @@ const cacher_rule *cacher_ruleset_match(const cacher_ruleset *rs, const char *pa
     for (i = 0; rs->rules[i]; i++) {
         const cacher_rule *r = rs->rules[i];
 
-        if (!r->enabled) {
+        /* Disabled rules deliberately take part in matching: a matched
+         * rule with enabled == 0 means "explicitly not cacheable", and
+         * the caller stops there. Skipping them here instead would let an
+         * exclusion fall through to a later catch-all and cache exactly
+         * what the exclusion existed to protect. */
+
+        if (r->path && !cacher_glob_match(r->path, path ? path : "", 0)) {
             continue;
         }
 
-        if (r->path && !cacher_glob_match(r->path, path ? path : "", 0)) {
+        if (r->query && !cacher_glob_match(r->query, query ? query : "", 0)) {
             continue;
         }
 

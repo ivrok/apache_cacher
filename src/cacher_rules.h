@@ -13,8 +13,10 @@
 
 typedef struct {
     char *path;             /* glob pattern ('*'/'?'), NULL = match any path */
+    char *query;            /* glob against the query string, NULL = match any */
     char **methods;         /* NULL-terminated array of uppercase methods, NULL = match any */
-    int enabled;            /* 1 = active (default), 0 = explicitly disabled */
+    int enabled;            /* 1 = cache when this rule matches (default);
+                               0 = matched, but explicitly NOT cacheable */
     long ttl_seconds;       /* freshness window; <= 0 = never fresh */
     int *status_codes;      /* array terminated by -1; defaults to {200,-1} if omitted */
     char **bypass_cookies;  /* NULL-terminated array of glob patterns matched against cookie NAMEs */
@@ -38,11 +40,18 @@ cacher_ruleset *cacher_ruleset_parse(const char *json, char *errbuf, size_t errb
 void cacher_ruleset_free(cacher_ruleset *rs);
 
 /*
- * Returns the first enabled rule matching `path` and `method` (method may
- * be NULL to skip method matching), or NULL if none match. The returned
- * pointer is owned by `rs`.
+ * Returns the first rule whose match clause matches this request, or NULL
+ * if none do. `query` and `method` may be NULL. The returned pointer is
+ * owned by `rs`.
+ *
+ * Disabled rules take part in matching and can win: first match wins,
+ * full stop. A matched rule with enabled == 0 means "this request is
+ * explicitly not cacheable" - the caller must check `enabled` and stop,
+ * NOT fall through to later rules. That is what makes an exclusion list
+ * ahead of a catch-all rule behave the way anyone would expect.
  */
-const cacher_rule *cacher_ruleset_match(const cacher_ruleset *rs, const char *path, const char *method);
+const cacher_rule *cacher_ruleset_match(const cacher_ruleset *rs, const char *path,
+                                         const char *query, const char *method);
 
 /* True if any of `rule`'s bypass_cookies patterns matches `cookie_name`. */
 int cacher_rule_bypasses_cookie(const cacher_rule *rule, const char *cookie_name);
