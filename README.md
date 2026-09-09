@@ -245,6 +245,18 @@ error in the log.
 LogLevel info cacher:trace1
 ```
 
+**Appending to an existing `.htaccess`?** WordPress and many generators
+write their `.htaccess` without a trailing newline, so a plain `cat >>` or
+`echo >>` silently glues your first directive onto the end of the last
+line - typically `# END WordPress`, which turns it into a comment that is
+never parsed and never warns. Always lead with an explicit newline:
+
+```bash
+printf '\nCacherEnable On\nCacherRulesFile cacher-rules.json\n' >> /path/to/.htaccess
+```
+
+and then check with `tail -5` that the directives are on their own lines.
+
 **10. Drop in a rules file** - copy `examples/htaccess.example` to
 `.htaccess` and `examples/cacher-rules.example.json` to
 `cacher-rules.json` in the test directory, adjusting the paths and cookie
