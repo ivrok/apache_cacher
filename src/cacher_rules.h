@@ -19,6 +19,7 @@ typedef struct {
                                0 = matched, but explicitly NOT cacheable */
     long ttl_seconds;       /* freshness window; <= 0 = never fresh */
     int *status_codes;      /* array terminated by -1; defaults to {200,-1} if omitted */
+    char **content_types;   /* NULL-terminated globs against the response Content-Type; NULL = any */
     char **bypass_cookies;  /* NULL-terminated array of glob patterns matched against cookie NAMEs */
     char **vary;            /* NULL-terminated array: header names, or "cookie:NAME" */
 } cacher_rule;
@@ -58,6 +59,18 @@ int cacher_rule_bypasses_cookie(const cacher_rule *rule, const char *cookie_name
 
 /* True if `status` is one of `rule`'s status_codes. */
 int cacher_rule_allows_status(const cacher_rule *rule, int status);
+
+/*
+ * True if `content_type` matches one of `rule`'s content_types globs, or if
+ * the rule sets none. Parameters are ignored, so "text/html; charset=UTF-8"
+ * is tested as "text/html"; matching is case-insensitive.
+ *
+ * Checked on the write path only: the response type is not known when the
+ * request arrives. It is the reliable way to keep static assets out of the
+ * cache - Apache already serves those well, and they never reach PHP, so
+ * caching them costs disk and buys nothing.
+ */
+int cacher_rule_allows_content_type(const cacher_rule *rule, const char *content_type);
 
 /*
  * Simple glob match: '*' matches any run of characters, '?' matches any

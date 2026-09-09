@@ -341,6 +341,7 @@ shop and AJAX paths and caches everything else.
 - `match.methods` - array of HTTP methods. Omit to match any method.
 - `bypass_cookies` - glob patterns matched against cookie **names** (never values) present on the request. Any match skips the cache entirely for that request - this is how an authenticated session avoids being served/stored as a cached page.
 - `status_codes` - response statuses eligible for caching. Defaults to `[200]`.
+- `content_types` - globs against the response `Content-Type` (parameters like `; charset=UTF-8` are ignored, matching is case-insensitive). Omit to accept any type. Checked on the write path, since the type isn't known when the request arrives. **Set this to `["text/html"]` on a page-caching rule** - otherwise stylesheets, scripts, fonts and images all land in the cache, where they cost disk and buy nothing, since Apache already serves static files well and they never reach PHP.
 - `vary` - header names, plus an optional `cookie:<name>` pseudo-entry to partition the cache by a cookie's value.
 
 ## Verifying end-to-end (curl matrix)

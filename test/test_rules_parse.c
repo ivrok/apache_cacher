@@ -164,6 +164,58 @@ static void test_query_matching(void)
     cacher_ruleset_free(rs);
 }
 
+/* Static assets are the bulk of requests on any real site and Apache
+ * already serves them well, so a rule limited to text/html must not accept
+ * a stylesheet just because the status code matched. */
+static void test_content_type_matching(void)
+{
+    const char *json =
+        "{\"rules\":[{\"ttl\":60,\"content_types\":[\"text/html\"]}]}";
+    char errbuf[128];
+    cacher_ruleset *rs = cacher_ruleset_parse(json, errbuf, sizeof(errbuf));
+    const cacher_rule *rule;
+
+    CHECK(rs != NULL, "content_types: ruleset parses");
+    if (!rs) {
+        return;
+    }
+
+    rule = cacher_ruleset_match(rs, "/anything", NULL, "GET");
+    CHECK(rule != NULL, "content_types: rule matches");
+    if (rule) {
+        CHECK(cacher_rule_allows_content_type(rule, "text/html"), "content_types: bare text/html allowed");
+        CHECK(cacher_rule_allows_content_type(rule, "text/html; charset=UTF-8"),
+              "content_types: charset parameter ignored");
+        CHECK(cacher_rule_allows_content_type(rule, "TEXT/HTML"), "content_types: match is case-insensitive");
+        CHECK(!cacher_rule_allows_content_type(rule, "text/css"), "content_types: stylesheet rejected");
+        CHECK(!cacher_rule_allows_content_type(rule, "application/javascript"), "content_types: script rejected");
+        CHECK(!cacher_rule_allows_content_type(rule, "image/png"), "content_types: image rejected");
+        CHECK(!cacher_rule_allows_content_type(rule, NULL), "content_types: unknown type rejected when constrained");
+    }
+
+    cacher_ruleset_free(rs);
+}
+
+/* A rule with no content_types must keep accepting anything. */
+static void test_content_type_unconstrained(void)
+{
+    const char *json = "{\"rules\":[{\"ttl\":60}]}";
+    char errbuf[128];
+    cacher_ruleset *rs = cacher_ruleset_parse(json, errbuf, sizeof(errbuf));
+    const cacher_rule *rule;
+
+    CHECK(rs != NULL, "content_types: unconstrained ruleset parses");
+    if (!rs) {
+        return;
+    }
+    rule = cacher_ruleset_match(rs, "/anything", NULL, "GET");
+    if (rule) {
+        CHECK(cacher_rule_allows_content_type(rule, "image/png"), "content_types: unset accepts any type");
+        CHECK(cacher_rule_allows_content_type(rule, NULL), "content_types: unset accepts unknown type");
+    }
+    cacher_ruleset_free(rs);
+}
+
 static void test_parse_errors(void)
 {
     char errbuf[128];
@@ -180,6 +232,8 @@ int main(void)
     test_parse_defaults();
     test_disabled_rule_excludes_rather_than_falls_through();
     test_query_matching();
+    test_content_type_matching();
+    test_content_type_unconstrained();
     test_parse_errors();
 
     if (failures == 0) {

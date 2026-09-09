@@ -341,6 +341,7 @@ static apr_status_t cacher_output_filter(ap_filter_t *f, apr_bucket_brigade *bb)
     if (!ctx->started) {
         ctx->started = 1;
         ctx->cacheable = cacher_rule_allows_status(ctx->rule, r->status)
+                       && cacher_rule_allows_content_type(ctx->rule, r->content_type)
                        && r->main == NULL
                        && !apr_table_get(r->headers_in, "Authorization");
 

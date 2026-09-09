@@ -1,24 +1,27 @@
 {
   "_comment": [
-    "WordPress + WooCommerce: exclude auth, shop and AJAX paths, cache the rest.",
+    "WordPress + WooCommerce: cache rendered HTML pages only.",
     "Rules are ordered and the FIRST match wins, including exclusions -",
     "so every 'enabled: false' rule must come before the catch-all at the end.",
-    "Cookie names below are matched against cookie NAMES only, never values."
+    "Cookie names are matched against cookie NAMES only, never values."
   ],
 
   "rules": [
     {
-      "_comment": "WP AJAX and cron. admin-ajax.php is used by logged-out visitors too, so it must be excluded by path, not left to the cookie bypass.",
-      "match": { "path": "/wp-admin/admin-ajax.php" },
+      "_comment": [
+        "Static assets. Apache already serves these efficiently with sendfile",
+        "and mod_expires, and they never reach PHP, so caching them buys",
+        "nothing and costs a cache lookup on every asset request - which is",
+        "most requests on a page. Excluded by path so the lookup is skipped",
+        "entirely; the catch-all's content_types is the backstop."
+      ],
+      "match": { "path": "/wp-content/*" },
       "enabled": false
     },
+    { "match": { "path": "/wp-includes/*" }, "enabled": false },
+
     {
-      "_comment": "WooCommerce AJAX lives in the query string on any path (/?wc-ajax=get_refreshed_fragments), so it needs a query match.",
-      "match": { "query": "*wc-ajax=*" },
-      "enabled": false
-    },
-    {
-      "_comment": "WP admin, login, cron, XML-RPC and the REST API.",
+      "_comment": "WP AJAX, admin, login, cron, XML-RPC and the REST API.",
       "match": { "path": "/wp-admin/*" },
       "enabled": false
     },
@@ -28,7 +31,7 @@
     { "match": { "path": "/wp-json/*" }, "enabled": false },
 
     {
-      "_comment": "WooCommerce endpoints. Adjust these slugs if the shop uses translated or renamed pages.",
+      "_comment": "WooCommerce endpoints. Adjust if the shop uses translated or renamed slugs.",
       "match": { "path": "/cart*" },
       "enabled": false
     },
@@ -36,24 +39,32 @@
     { "match": { "path": "/my-account*" }, "enabled": false },
     { "match": { "path": "/order-received*" }, "enabled": false },
     { "match": { "path": "/wc-api/*" }, "enabled": false },
-    { "match": { "path": "/addons*" }, "enabled": false },
 
     {
-      "_comment": "Preview and customiser links carry per-user nonces.",
-      "match": { "query": "*preview=true*" },
+      "_comment": [
+        "Any URL carrying a query string. '?*' means 'at least one character'.",
+        "This covers WooCommerce AJAX (/?wc-ajax=...), add-to-cart links,",
+        "preview nonces, and - importantly - tracking parameters: the query",
+        "is part of the cache key, so every distinct ?utm_source=... would",
+        "otherwise become its own entry and the cache would grow without",
+        "bound. Move an allow rule above this one if a paginated or filtered",
+        "URL genuinely needs caching."
+      ],
+      "match": { "query": "?*" },
       "enabled": false
     },
-    { "match": { "query": "*customize_changeset_uuid=*" }, "enabled": false },
-    { "match": { "query": "*add-to-cart=*" }, "enabled": false },
-    { "match": { "query": "*remove_item=*" }, "enabled": false },
-    { "match": { "query": "*unregistered_user=*" }, "enabled": false },
 
     {
-      "_comment": "Everything else: cache GET/HEAD 200s for 5 minutes, but never for a visitor whose cookies say they are logged in, mid-checkout, or otherwise personalised.",
+      "_comment": [
+        "Everything else: rendered HTML only, for 5 minutes, and never for a",
+        "visitor whose cookies say they are logged in, mid-checkout, or",
+        "otherwise personalised."
+      ],
       "match": { "methods": ["GET", "HEAD"] },
       "enabled": true,
       "ttl": 300,
       "status_codes": [200],
+      "content_types": ["text/html"],
       "bypass_cookies": [
         "wordpress_logged_in_*",
         "wordpress_sec_*",

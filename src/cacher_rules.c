@@ -190,6 +190,7 @@ static void free_rule(cacher_rule *r)
     free(r->query);
     free_string_array(r->methods);
     free(r->status_codes);
+    free_string_array(r->content_types);
     free_string_array(r->bypass_cookies);
     free_string_array(r->vary);
     free(r);
@@ -246,6 +247,9 @@ static cacher_rule *parse_rule(const cJSON *robj)
             r->status_codes[1] = -1;
         }
     }
+
+    r->content_types = json_string_array(
+        cJSON_GetObjectItemCaseSensitive(robj, "content_types"), 0);
 
     bypass_cookies = cJSON_GetObjectItemCaseSensitive(robj, "bypass_cookies");
     r->bypass_cookies = json_string_array(bypass_cookies, 0);
@@ -392,6 +396,35 @@ int cacher_rule_bypasses_cookie(const cacher_rule *rule, const char *cookie_name
     }
     for (i = 0; rule->bypass_cookies[i]; i++) {
         if (cacher_glob_match(rule->bypass_cookies[i], cookie_name, 0)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int cacher_rule_allows_content_type(const cacher_rule *rule, const char *content_type)
+{
+    char base[128];
+    size_t i = 0;
+    int j;
+
+    if (!rule || !rule->content_types) {
+        return 1; /* no constraint */
+    }
+    if (!content_type) {
+        return 0;
+    }
+
+    /* "text/html; charset=UTF-8" -> "text/html" */
+    while (content_type[i] && content_type[i] != ';' && content_type[i] != ' '
+           && i < sizeof(base) - 1) {
+        base[i] = content_type[i];
+        i++;
+    }
+    base[i] = '\0';
+
+    for (j = 0; rule->content_types[j]; j++) {
+        if (cacher_glob_match(rule->content_types[j], base, 1)) {
             return 1;
         }
     }
