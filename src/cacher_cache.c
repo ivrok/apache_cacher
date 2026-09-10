@@ -346,11 +346,36 @@ static apr_status_t cacher_output_filter(ap_filter_t *f, apr_bucket_brigade *bb)
     cacher_out_ctx *ctx = f->ctx;
     apr_bucket *e;
     if (!ctx->started) {
+        /* r->content_type is the usual source, but fall back to the response
+         * header: some generators set only the header, and treating an
+         * unknown type as "not text/html" would silently stop caching
+         * everything. */
+        const char *ctype = r->content_type;
+        int ok_status, ok_type;
+
+        if (!ctype) {
+            ctype = apr_table_get(r->headers_out, "Content-Type");
+        }
+
         ctx->started = 1;
-        ctx->cacheable = cacher_rule_allows_status(ctx->rule, r->status)
-                       && cacher_rule_allows_content_type(ctx->rule, r->content_type)
+        ok_status = cacher_rule_allows_status(ctx->rule, r->status);
+        ok_type = cacher_rule_allows_content_type(ctx->rule, ctype);
+
+        ctx->cacheable = ok_status && ok_type
                        && r->main == NULL
                        && !apr_table_get(r->headers_in, "Authorization");
+
+        /* Say why, when we decline. Without this the write path fails
+         * silently and looks identical to the module not running. */
+        if (!ctx->cacheable) {
+            ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                          "cacher: not storing %s - status %d (%s), content-type '%s' (%s)%s%s",
+                          r->uri, r->status, ok_status ? "allowed" : "NOT in status_codes",
+                          ctype ? ctype : "(none)", ok_type ? "allowed" : "NOT in content_types",
+                          r->main ? ", is a subrequest" : "",
+                          apr_table_get(r->headers_in, "Authorization")
+                              ? ", request carries Authorization" : "");
+        }
 
         if (ctx->cacheable) {
             apr_status_t rv;
