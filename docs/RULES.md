@@ -9,8 +9,19 @@ CacherRulesFile cacher-rules.json
 ```
 
 `CacherRulesFile` is resolved relative to the directory holding the
-`.htaccess`. Inline rules also work for short ones, in **single quotes** so
-the JSON's own double quotes survive:
+`.htaccess`.
+
+**An absolute path is usually the better choice**, because the rules are
+server configuration rather than site content and have no business sitting
+in a deployable tree - a deploy that cleans untracked files will delete
+them, and a missing rules file makes the module decline silently:
+
+```apache
+CacherRulesFile /etc/cacher/example.com.json
+```
+
+Inline rules also work for short ones, in **single quotes** so the JSON's
+own double quotes survive:
 
 ```apache
 CacherRules '{"rules":[{"ttl":300,"content_types":["text/html"]}]}'

@@ -247,6 +247,23 @@ With `LogLevel info cacher:trace1` you should see one line per decision:
 `served from cache`, `matched no rule`, `matched an exclusion rule`,
 `bypassed (matching cookie present)`, or `no usable rules`.
 
+### 4b. Does the rules file still exist?
+
+```bash
+ls -l /path/to/cacher-rules.json
+```
+
+If the rules file lives inside the document root and the site is deployed
+from git, a deploy that removes untracked files will delete it - after
+which the module declines every request, logging only
+`enabled here but no usable rules` at `trace1`.
+
+Keep it outside the deployable tree and point at it absolutely:
+
+```apache
+CacherRulesFile /etc/cacher/example.com.json
+```
+
 ### 5. Is the rules file parsing?
 
 A parse failure logs once per request:
