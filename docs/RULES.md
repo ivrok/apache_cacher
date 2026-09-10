@@ -204,6 +204,29 @@ a rules file.
 
 ---
 
+## Is it actually caching? Read the header
+
+Every response from a Cacher-enabled directory carries `X-Cacher`:
+
+| Value | Meaning |
+|---|---|
+| `HIT` | served from the cache; an `Age` header gives its age in seconds |
+| `MISS` | generated now, and stored for next time |
+| `BYPASS` | a `bypass_cookies` match - never cached for this visitor |
+| `EXCLUDED` | matched a rule with `"enabled": false` |
+| `DYNAMIC` | Cacher is on here, but no rule matched |
+
+```bash
+curl -sI https://your-site.example/some-page/ | grep -i '^x-cacher\|^age'
+```
+
+**Test with `curl`, not your browser.** A browser logged into the site
+sends its session cookies, so it will correctly get `BYPASS` on every
+request - which looks exactly like "caching is broken". `curl` sends no
+cookies unless told to.
+
+Turn the header off with `CacherStatusHeader Off`.
+
 ## Checking your work
 
 Validate the JSON before wondering why nothing caches:

@@ -21,6 +21,7 @@ APLOG_USE_MODULE(cacher);
  * On-disk .header layout - deliberately plain text:
  *
  *     CACHER/2
+ *     created <unix seconds>
  *     expires <unix seconds>
  *     status <http status>
  *     url <METHOD> <host> <path[?query]>
@@ -169,7 +170,9 @@ int cacher_cache_read_meta(apr_pool_t *p, const char *header_path,
     headers_at += 2;
 
     for (line = apr_strtok(text, "\n", &last); line; line = apr_strtok(NULL, "\n", &last)) {
-        if (strncmp(line, "expires ", 8) == 0) {
+        if (strncmp(line, "created ", 8) == 0) {
+            meta->created = apr_atoi64(line + 8);
+        } else if (strncmp(line, "expires ", 8) == 0) {
             meta->expires = apr_atoi64(line + 8);
         } else if (strncmp(line, "status ", 7) == 0) {
             meta->status = (int) apr_atoi64(line + 7);
@@ -244,7 +247,9 @@ static int is_uncacheable_header(const char *name)
         || cacher_streq_ci(name, "Keep-Alive")
         || cacher_streq_ci(name, "Transfer-Encoding")
         || cacher_streq_ci(name, "Content-Length")
-        || cacher_streq_ci(name, "Set-Cookie");
+        || cacher_streq_ci(name, "Set-Cookie")
+        || cacher_streq_ci(name, CACHER_STATUS_HEADER)
+        || cacher_streq_ci(name, "Age");
 }
 
 typedef struct {
@@ -285,10 +290,12 @@ static void finalize_cache_entry(request_rec *r, cacher_out_ctx *ctx)
      * cache file is an opaque hash with no way back to the request. */
     file_text = apr_psprintf(r->pool,
                               CACHER_HEADER_VERSION "\n"
+                              "created %" APR_INT64_T_FMT "\n"
                               "expires %" APR_INT64_T_FMT "\n"
                               "status %d\n"
                               "url %s %s %s%s%s\n"
                               "\n%s",
+                              (apr_int64_t) apr_time_sec(apr_time_now()),
                               (apr_int64_t) (apr_time_sec(apr_time_now()) + ctx->rule->ttl_seconds),
                               r->status,
                               r->method,
@@ -421,7 +428,8 @@ void cacher_cache_insert_filter(request_rec *r, const char *cache_root, const ca
 
 apr_file_t *cacher_cache_lookup(request_rec *r, const char *cache_root,
                                  const cacher_rule *rule,
-                                 int *out_status, apr_off_t *out_length)
+                                 int *out_status, apr_off_t *out_length,
+                                 apr_int64_t *out_age)
 {
     char *header_path;
     char *body_path;
@@ -487,5 +495,8 @@ apr_file_t *cacher_cache_lookup(request_rec *r, const char *cache_root,
 
     *out_status = meta.status;
     *out_length = finfo.size;
+    *out_age = meta.created > 0
+                ? (apr_int64_t) apr_time_sec(apr_time_now()) - meta.created
+                : -1;
     return bf;
 }

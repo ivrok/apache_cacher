@@ -20,6 +20,16 @@
 #include "http_log.h"
 #include "http_protocol.h"
 
+/* Records the cache outcome in a response header, so "was this served from
+ * cache?" is answerable from the client rather than only from the log.
+ * Suppressed by CacherStatusHeader Off. */
+static void set_status(request_rec *r, const cacher_dir_conf *dconf, const char *status)
+{
+    if (dconf->status_header != 0) {
+        apr_table_setn(r->headers_out, CACHER_STATUS_HEADER, status);
+    }
+}
+
 /*
  * Runs as a content handler, NOT as a quick_handler.
  *
@@ -47,6 +57,7 @@ static int cacher_handler(request_rec *r)
     apr_file_t *body;
     int status;
     apr_off_t length;
+    apr_int64_t age = -1;
 
     /* Subrequests (SSI includes and friends) are fragments of another
      * response, not independently addressable resources - never cache or
@@ -146,6 +157,7 @@ static int cacher_handler(request_rec *r)
     if (!rule) {
         ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
                       "cacher: %s %s matched no rule", r->method, orig->uri);
+        set_status(r, dconf, "DYNAMIC");
         return DECLINED;
     }
 
@@ -153,21 +165,31 @@ static int cacher_handler(request_rec *r)
         ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
                       "cacher: %s %s matched an exclusion rule - not cacheable",
                       r->method, orig->uri);
+        set_status(r, dconf, "EXCLUDED");
         return DECLINED;
     }
 
     if (cacher_request_bypasses(r, rule)) {
         ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
                       "cacher: %s %s bypassed (matching cookie present)", r->method, orig->uri);
+        set_status(r, dconf, "BYPASS");
         return DECLINED;
     }
 
-    body = cacher_cache_lookup(r, sconf ? sconf->cache_root : NULL, rule, &status, &length);
+    body = cacher_cache_lookup(r, sconf ? sconf->cache_root : NULL, rule, &status, &length, &age);
     if (body) {
         apr_bucket_brigade *bb;
 
         r->status = status;
         ap_set_content_length(r, length);
+
+        /* After the lookup, which replays the stored headers - otherwise a
+         * stored value would overwrite this one. */
+        set_status(r, dconf, "HIT");
+        if (age >= 0) {
+            apr_table_setn(r->headers_out, "Age",
+                            apr_psprintf(r->pool, "%" APR_INT64_T_FMT, age));
+        }
 
         bb = apr_brigade_create(r->pool, r->connection->bucket_alloc);
         apr_brigade_insert_file(bb, body, 0, length, r->pool);
@@ -184,6 +206,7 @@ static int cacher_handler(request_rec *r)
      * content handler (PHP, static file, ...) generates the response.
      * Adding an output filter here is safe - filters only need to be in
      * place before content starts flowing, and this hook runs first. */
+    set_status(r, dconf, "MISS");
     cacher_cache_insert_filter(r, sconf ? sconf->cache_root : NULL, rule);
 
     return DECLINED;

@@ -41,6 +41,7 @@ void *cacher_create_dir_config(apr_pool_t *p, char *dir)
     conf->config_dir = dir ? apr_pstrdup(p, dir) : NULL;
     conf->admin_path = NULL;
     conf->admin_require_user = CACHER_UNSET;
+    conf->status_header = CACHER_UNSET;
     return conf;
 }
 
@@ -62,6 +63,8 @@ void *cacher_merge_dir_config(apr_pool_t *p, void *basev, void *newv)
     merged->admin_path = add->admin_path ? add->admin_path : base->admin_path;
     merged->admin_require_user = (add->admin_require_user != CACHER_UNSET)
                                   ? add->admin_require_user : base->admin_require_user;
+    merged->status_header = (add->status_header != CACHER_UNSET)
+                             ? add->status_header : base->status_header;
 
     return merged;
 }
@@ -170,6 +173,15 @@ static const char *cacher_set_admin_require_user(cmd_parms *cmd, void *dconf, in
     return NULL;
 }
 
+static const char *cacher_set_status_header(cmd_parms *cmd, void *dconf, int flag)
+{
+    cacher_dir_conf *conf = dconf;
+
+    (void) cmd;
+    conf->status_header = flag ? 1 : 0;
+    return NULL;
+}
+
 const command_rec cacher_cmds[] = {
     AP_INIT_FLAG("CacherEnable", cacher_set_enable, NULL, OR_FILEINFO,
                  "Enable Cacher for this directory (On|Off, default Off)"),
@@ -186,6 +198,9 @@ const command_rec cacher_cmds[] = {
     AP_INIT_FLAG("CacherAdminRequireUser", cacher_set_admin_require_user, NULL, OR_FILEINFO,
                  "Require an authenticated user for the admin endpoints (default On). "
                  "Set Off only where an open cache reset is acceptable, e.g. staging"),
+    AP_INIT_FLAG("CacherStatusHeader", cacher_set_status_header, NULL, OR_FILEINFO,
+                 "Send an X-Cacher response header naming the cache outcome "
+                 "(HIT/MISS/BYPASS/EXCLUDED/DYNAMIC). Default On"),
     { NULL }
 };
 

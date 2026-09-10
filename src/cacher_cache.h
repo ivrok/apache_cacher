@@ -8,8 +8,23 @@
 /* Name under which the write-path output filter is registered. */
 #define CACHER_OUTPUT_FILTER_NAME "CACHER_OUT"
 
+/*
+ * Response header naming the cache outcome, so "was this cached?" is
+ * answerable from the client rather than only from the server's log:
+ *
+ *   HIT       served from the cache
+ *   MISS      generated now, and stored for next time
+ *   BYPASS    a bypass_cookies match - never cached for this visitor
+ *   EXCLUDED  matched a rule with "enabled": false
+ *   DYNAMIC   Cacher is on here, but no rule matched this request
+ *
+ * Suppress with "CacherStatusHeader Off".
+ */
+#define CACHER_STATUS_HEADER "X-Cacher"
+
 /* Metadata recorded in a .header file, as parsed by cacher_cache_read_meta. */
 typedef struct {
+    apr_int64_t created;   /* unix seconds; 0 if written by an older version */
     apr_int64_t expires;   /* unix seconds */
     int status;
     const char *method;
@@ -45,10 +60,14 @@ int cacher_cache_ensure_root(apr_pool_t *p, server_rec *base_s);
  * *out_status and *out_length, and returns an open apr_file_t positioned
  * at the start of the cached body - the caller streams it out and closes
  * it. Returns NULL on MISS, expiry, or when cache_root is unset.
+ *
+ * *out_age receives the entry's age in seconds, or -1 if the entry predates
+ * the recording of a creation time.
  */
 apr_file_t *cacher_cache_lookup(request_rec *r, const char *cache_root,
                                  const cacher_rule *rule,
-                                 int *out_status, apr_off_t *out_length);
+                                 int *out_status, apr_off_t *out_length,
+                                 apr_int64_t *out_age);
 
 /*
  * Inserts the CACHER_OUT filter that will capture this response to disk

@@ -14,6 +14,7 @@ typedef struct {
     int enabled;             /* CACHER_UNSET / 0 (off) / 1 (on) */
     const char *admin_path;   /* CacherAdminPath, or NULL = console-only */
     int admin_require_user;   /* CACHER_UNSET / 0 / 1; unset behaves as 1 */
+    int status_header;        /* CACHER_UNSET / 0 / 1; unset behaves as 1 */
     const char *rules_json;  /* CacherRules inline value, or NULL */
     const char *rules_file;  /* CacherRulesFile value, or NULL; wins over rules_json */
     const char *config_dir;  /* Directory this config level was created for; base for

@@ -167,6 +167,27 @@ workstation; `git pull` runs on the server.
 
 Work down this list; each step is cheap.
 
+### 0. Read the `X-Cacher` header first
+
+It names the outcome and usually ends the investigation immediately:
+
+```bash
+curl -sI https://your-site.example/some-page/ | grep -i '^x-cacher\|^age'
+```
+
+`HIT` cached · `MISS` stored just now · `BYPASS` a cookie matched
+`bypass_cookies` · `EXCLUDED` an exclusion rule matched · `DYNAMIC` no rule
+matched · **no header at all** means the module never engaged - `CacherEnable`
+is not in effect, so go to step 2.
+
+**Do not judge this from a browser you are logged into.** Your session
+cookies will produce `BYPASS` on every request, which is the module working
+correctly and looks identical to it being broken. Use `curl`, or a private
+window.
+
+Another quick tell without any header: a cache hit sets `Content-Length`,
+whereas a freshly generated PHP page is usually `Transfer-Encoding: chunked`.
+
 ### 1. Is the module even loaded?
 
 ```bash
