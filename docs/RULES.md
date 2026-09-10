@@ -199,6 +199,14 @@ Use it sparingly: each distinct value creates its own entry, so varying on
 something high-cardinality (a user id, a session) multiplies the cache and
 gains nothing.
 
+**`"vary": ["Accept-Encoding"]` is not optional when `mod_deflate` is
+enabled.** Cacher captures the response after compression, so an entry
+holds either gzipped or plain bytes depending on what that client asked
+for. Without the vary, one encoding's bytes get served to clients
+expecting the other and the page arrives as garbage. It does mean the same
+URL shows up in `cacher list` once per encoding - two entries of very
+different sizes for one page is correct, not a bug.
+
 ---
 
 ## Field reference

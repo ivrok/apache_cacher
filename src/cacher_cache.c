@@ -49,6 +49,7 @@ typedef struct {
     char *tmp_body_path;
     apr_file_t *tmp_body_file;
     apr_pool_t *pool;
+    apr_off_t body_len;   /* bytes captured so far, for the integrity check */
     int started;
     int cacheable;
 } cacher_out_ctx;
@@ -208,11 +209,21 @@ int cacher_cache_read_meta(apr_pool_t *p, const char *header_path,
 void cacher_cache_register_filter(apr_pool_t *p)
 {
     (void) p;
-    /* AP_FTYPE_CONTENT_SET (same type mod_cache uses for CACHE_SAVE), not
+    /*
+     * AP_FTYPE_CONTENT_SET (same type mod_cache uses for CACHE_SAVE), not
      * AP_FTYPE_PROTOCOL: ap_http_header_filter is itself a PROTOCOL filter,
      * and at that type we could be ordered after it and end up capturing the
      * serialized HTTP header block into the cached body. CONTENT_SET keeps
-     * us upstream of header serialization, seeing body bytes only. */
+     * us upstream of header serialization, seeing body bytes only.
+     *
+     * We share that type with mod_deflate and are ordered after it, so what
+     * gets captured is the response as encoded for this particular client:
+     * gzip for a browser, plain for a client that sent no Accept-Encoding.
+     * That is why a page-caching rule needs "vary": ["Accept-Encoding"] -
+     * without it, one encoding's bytes would be served to clients expecting
+     * the other. It also means the same URL legitimately occupies one entry
+     * per encoding.
+     */
     ap_register_output_filter(CACHER_OUTPUT_FILTER_NAME, cacher_output_filter, NULL, AP_FTYPE_CONTENT_SET);
 }
 
@@ -281,10 +292,47 @@ static void finalize_cache_entry(request_rec *r, cacher_out_ctx *ctx)
     request_rec *orig = cacher_original_request(r);
     char *file_text;
     char *tmp_header_path;
+    const char *declared;
     apr_file_t *hf;
     apr_status_t rv;
 
     apr_file_close(ctx->tmp_body_file);
+
+    /*
+     * Only publish a response we are confident is complete. A 200 status is
+     * decided before the body exists, so it says nothing about whether the
+     * generator finished: a PHP fatal partway through rendering still
+     * reaches EOS, and caching that truncated page would serve it to
+     * everyone until the TTL ran out.
+     *
+     * Two cheap checks catch the realistic cases. A client that hung up
+     * means the response may have been cut short, and if the origin
+     * declared a Content-Length we can compare it against what we actually
+     * captured. Chunked responses carry no length, so that one simply does
+     * not apply - hence it is a check, not a guarantee.
+     */
+    if (r->connection && r->connection->aborted) {
+        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                      "cacher: not publishing %s - client aborted, response may be truncated",
+                      r->uri);
+        apr_file_remove(ctx->tmp_body_path, r->pool);
+        return;
+    }
+
+    declared = apr_table_get(r->headers_out, "Content-Length");
+    if (declared) {
+        apr_off_t want = (apr_off_t) apr_atoi64(declared);
+
+        if (want != ctx->body_len) {
+            ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, r,
+                          "cacher: not publishing %s - captured %" APR_OFF_T_FMT
+                          " bytes but the response declared Content-Length %s; "
+                          "the response looks truncated",
+                          r->uri, ctx->body_len, declared);
+            apr_file_remove(ctx->tmp_body_path, r->pool);
+            return;
+        }
+    }
 
     hctx.text = "";
     hctx.pool = r->pool;
@@ -416,7 +464,9 @@ static apr_status_t cacher_output_filter(ap_filter_t *f, apr_bucket_brigade *bb)
             apr_size_t len;
 
             if (apr_bucket_read(e, &data, &len, APR_BLOCK_READ) == APR_SUCCESS && len > 0
-                && apr_file_write_full(ctx->tmp_body_file, data, len, NULL) != APR_SUCCESS) {
+                && apr_file_write_full(ctx->tmp_body_file, data, len, NULL) == APR_SUCCESS) {
+                ctx->body_len += (apr_off_t) len;
+            } else if (len > 0) {
                 ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
                               "cacher: write failed for temp cache file '%s' - abandoning entry",
                               ctx->tmp_body_path);
