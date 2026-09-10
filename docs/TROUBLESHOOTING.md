@@ -188,6 +188,14 @@ window.
 Another quick tell without any header: a cache hit sets `Content-Length`,
 whereas a freshly generated PHP page is usually `Transfer-Encoding: chunked`.
 
+Note `curl -I` sends **HEAD**, which is never stored (a HEAD body is empty
+by definition) though it is served from a GET entry. Test the write path
+with a GET:
+
+```bash
+curl -s -o /dev/null -D - https://your-site.example/page/ | grep -i '^x-cacher\|^age'
+```
+
 ### 1. Is the module even loaded?
 
 ```bash

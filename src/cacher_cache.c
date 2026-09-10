@@ -76,11 +76,15 @@ static char *build_cache_key_string(request_rec *r, const cacher_rule *rule)
      * rewrite every page is "/index.php", which would collapse the whole
      * site into one cache entry. */
     request_rec *orig = cacher_original_request(r);
+    /* HEAD describes the entity GET would return, so it must share GET's
+     * key. Keying them apart gives HEAD an entry of its own holding an
+     * empty body, and a hit on that would answer Content-Length: 0. */
+    const char *key_method = r->header_only ? "GET" : r->method;
     char *key;
     int i;
 
     key = apr_pstrcat(r->pool,
-                       r->method, "\n",
+                       key_method, "\n",
                        r->hostname ? r->hostname : "", "\n",
                        orig->uri, orig->args ? "?" : "", orig->args ? orig->args : "",
                        NULL);
@@ -434,6 +438,16 @@ void cacher_cache_insert_filter(request_rec *r, const char *cache_root, const ca
     char *body_path;
 
     if (!cache_root || rule->ttl_seconds <= 0) {
+        return;
+    }
+
+    /* Never store from a HEAD: its body is empty by definition, and it
+     * shares GET's cache key - storing would overwrite the real entity
+     * with nothing. A later GET populates the entry properly. */
+    if (r->header_only) {
+        ap_log_rerror(APLOG_MARK, APLOG_TRACE1, 0, r,
+                      "cacher: not storing %s - HEAD has no body; a GET will populate it",
+                      r->uri);
         return;
     }
 
