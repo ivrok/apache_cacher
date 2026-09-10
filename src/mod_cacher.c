@@ -17,6 +17,7 @@
 
 #include <string.h>
 
+#include "apr_strings.h"
 #include "http_log.h"
 #include "http_protocol.h"
 

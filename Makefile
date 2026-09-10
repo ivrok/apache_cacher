@@ -4,6 +4,12 @@ SRC   = src/mod_cacher.c src/cacher_config.c src/cacher_rules.c \
         third_party/cJSON.c
 INC   = -Ithird_party
 
+# An implicit declaration in C means the compiler assumes int, which
+# silently truncates a returned pointer to 32 bits on a 64-bit build. That
+# shipped once already (apr_psprintf without apr_strings.h, producing a
+# corrupt Age header and a crashing worker), so it is an error here.
+SAFETY = -Wc,-Werror=implicit-function-declaration
+
 MODULE = src/mod_cacher.la
 NAME   = cacher
 BINDIR ?= /usr/local/bin
@@ -12,7 +18,7 @@ BINDIR ?= /usr/local/bin
 all: $(MODULE)
 
 $(MODULE): $(SRC)
-	$(APXS) -c $(INC) $(SRC)
+	$(APXS) -c $(SAFETY) $(INC) $(SRC)
 
 # Copy the built module into Apache's modules dir. Does NOT edit any Apache
 # config and does NOT load the module - add the LoadModule line yourself when
@@ -36,7 +42,7 @@ enable: $(MODULE)
 # Should print nothing - anything it prints is worth reading.
 warn:
 	@$(MAKE) clean >/dev/null
-	@$(APXS) -c -Wc,-Wall -Wc,-Wextra $(INC) $(SRC) 2>&1 \
+	@$(APXS) -c -Wc,-Wall -Wc,-Wextra $(SAFETY) $(INC) $(SRC) 2>&1 \
 		| grep -E 'warning:|error:' | grep -v third_party || echo "No warnings."
 
 test:
