@@ -17,8 +17,13 @@ in a deployable tree - a deploy that cleans untracked files will delete
 them, and a missing rules file makes the module decline silently:
 
 ```apache
-CacherRulesFile /etc/cacher/example.com.json
+CacherRulesFile /etc/apache2/cacher/example.com.json
 ```
+
+`/etc/apache2/cacher/` sits with the rest of Apache's configuration, which
+is what these files are. Apache's own includes only glob `*.conf` under
+`mods-enabled`, `conf-enabled` and `sites-enabled`, so `.json` files in a
+subdirectory there are never mistaken for configuration to parse.
 
 Inline rules also work for short ones, in **single quotes** so the JSON's
 own double quotes survive:

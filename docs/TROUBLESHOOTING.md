@@ -261,7 +261,7 @@ which the module declines every request, logging only
 Keep it outside the deployable tree and point at it absolutely:
 
 ```apache
-CacherRulesFile /etc/cacher/example.com.json
+CacherRulesFile /etc/apache2/cacher/example.com.json
 ```
 
 ### 5. Is the rules file parsing?
