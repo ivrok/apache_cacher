@@ -9,21 +9,27 @@ CacherRulesFile cacher-rules.json
 ```
 
 `CacherRulesFile` is resolved relative to the directory holding the
-`.htaccess`.
+`.htaccess`, so keeping it beside the site is the natural default.
 
-**An absolute path is usually the better choice**, because the rules are
-server configuration rather than site content and have no business sitting
-in a deployable tree - a deploy that cleans untracked files will delete
-them, and a missing rules file makes the module decline silently:
+**If the site is deployed from git, make sure the deploy cannot remove
+it** - a missing rules file makes the module decline every request, and
+the only sign is `enabled here but no usable rules` at `trace1`. Adding it
+to the repository's `.gitignore` is normally enough: `git stash -u` and
+`git clean -fd` both skip ignored files. This is the same treatment
+`.htaccess` usually already gets.
+
+Check what your pipeline actually runs before relying on that, though -
+`git clean -fdx` and `rsync --delete` *do* remove ignored files. If yours
+uses either, put the rules outside the deployable tree and point at them
+absolutely:
 
 ```apache
 CacherRulesFile /etc/apache2/cacher/example.com.json
 ```
 
-`/etc/apache2/cacher/` sits with the rest of Apache's configuration, which
-is what these files are. Apache's own includes only glob `*.conf` under
-`mods-enabled`, `conf-enabled` and `sites-enabled`, so `.json` files in a
-subdirectory there are never mistaken for configuration to parse.
+Apache's own includes only glob `*.conf` under `mods-enabled`,
+`conf-enabled` and `sites-enabled`, so `.json` files in a subdirectory
+there are never mistaken for configuration to parse.
 
 Inline rules also work for short ones, in **single quotes** so the JSON's
 own double quotes survive:

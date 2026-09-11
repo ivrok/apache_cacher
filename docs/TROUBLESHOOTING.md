@@ -262,11 +262,24 @@ ls -l /path/to/cacher-rules.json
 ```
 
 If the rules file lives inside the document root and the site is deployed
-from git, a deploy that removes untracked files will delete it - after
-which the module declines every request, logging only
-`enabled here but no usable rules` at `trace1`.
+from git, the deploy may take it away - after which the module declines
+every request, logging only `enabled here but no usable rules` at
+`trace1`.
 
-Keep it outside the deployable tree and point at it absolutely:
+A deploy running `git stash -u` does not delete the file, it stashes it,
+so check there before recreating it:
+
+```bash
+sudo -u www-data git -C /path/to/docroot stash list
+```
+
+The fix is to add the file to the repository's `.gitignore`: `git stash -u`
+and `git clean -fd` both skip ignored files, which is why `.htaccess` is
+usually already listed there.
+
+Only if the pipeline uses `git clean -fdx` or `rsync --delete` - both of
+which *do* remove ignored files - does the file need to live outside the
+deployable tree:
 
 ```apache
 CacherRulesFile /etc/apache2/cacher/example.com.json
